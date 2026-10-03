@@ -387,6 +387,16 @@ CF_EXPORT void cf_seq_record(int on)
         seq.toggleRecording(true);
 }
 
+/** 1 while the current step's note is still held (between the step start and
+ *  the gate cutting it), so a UI can show the gate length. */
+CF_EXPORT int cf_seq_gate_open()
+{
+    if (!seq.getPlaying() || seq.sequenceLength == 0 || seq.isFirstRun)
+        return 0;
+    const KeyRequest &r = seq.mySequence[seq.currentIdx];
+    return (r.type_ != KeyRequest::Type::DUMMY && !seq.gate_stopped && !seq.last_step_muted) ? 1 : 0;
+}
+
 CF_EXPORT int cf_seq_recording() { return seq.getRecording() ? 1 : 0; }
 CF_EXPORT int cf_seq_muted() { return seq.muted ? 1 : 0; }
 

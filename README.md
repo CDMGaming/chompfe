@@ -18,8 +18,8 @@ support are new.
 |---|---|---|
 | 1 | Engine → WASM, factory tables, computer-keyboard play | done |
 | 2 | Full on-screen controls, loop recorder + step grid, presets, URL sharing | done |
-| 3 | Ableton Push 1 profile | next |
-| 4 | Arturia MiniLab mkII profile, generic MIDI learn | |
+| 3 | Ableton Push 1 profile, MIDI input | done (untested on hardware) |
+| 4 | Arturia MiniLab mkII profile, generic MIDI learn | next |
 | 5 | Custom wavetable import + guide | |
 
 ## Run it locally
@@ -75,6 +75,61 @@ length and gate (10 / 50 / 100 %, the hardware's three choices) are next to it.
   state. Nothing is sent to a server; it's all in the part after `#`.
 - The last state is also remembered in this browser between visits.
 
+## MIDI controllers
+
+Click **connect MIDI** (Chrome or Edge; Safari has no Web MIDI, Firefox asks
+for a permission add-on). Allow SysEx when asked; the Push display needs it.
+Devices are recognised by port name. Anything without a profile plays notes
+(and records into the loop).
+
+### Ableton Push (1st generation)
+
+Plug it in; Live doesn't need to be running. Chompfe uses the Push's "Live"
+port and leaves the "User" port alone.
+
+```
+ [enc1] [enc2] [enc3] [enc4] [enc5] [enc6] [enc7] [enc8]   [tempo] [swing=frame]  [master=out]
+ ┌──────────────────────────── LCD ───────────────────────────┐
+ │ param names                                                │
+ │ values                                                     │
+ │ bar graphs                                                 │
+ │ Sound  Motion  Out/Seq  Scale  <snd  snd>  sound  loop     │  <- labels for the row below
+ └────────────────────────────────────────────────────────────┘
+ [Sound][Motion][Out/Seq][Scale][<snd][snd>][   ][   ]   upper row: pages, previous/next sound
+ [ r  ][  r  ][   r   ][  r  ][ r  ][ r  ][ r ][ r ]   lower row: reset (or toggle) the knob above
+ ┌─────────── pads ───────────┐  [gate 10%]
+ │ steps  1-8                 │  [gate 50%]   scene buttons
+ │ steps  9-16      (Session) │  [gate 100%]
+ │ steps 17-24                │  [1/4] [1/8.] [1/8] [1/8T] [1/16]  step length
+ │ steps 25-32                │
+ │ in-key keys (4 rows)       │
+ └────────────────────────────┘
+```
+
+| Page | Encoders 1-8 |
+|---|---|
+| Sound | Table, Frame, Pitch, Filter, Resonance, Attack, Release, Delay/Reverb |
+| Motion | Wobble amount/rate/on, Vibrato amount/rate/on, FX time, Octave |
+| Out/Seq | Squash, Level, Pan, Tempo, Step length, Gate, Loop length, Output level |
+| Scale | Root, Scale, In key / chromatic, Pad octave |
+
+- **Shift** + encoder = fine. **Delete** + touching an encoder resets it.
+- **Session** button: top half is the 32-step loop, bottom half is an in-key
+  keyboard. Tap a step to toggle it, hold a step and hit a key to set its note,
+  **Shift** + step sets the loop length there, **Delete** + step makes it a rest.
+  The playing step is white while the gate holds the note, so you can see the
+  gate length; green steps have notes, grey ones are rests.
+- **Note** button: all 64 pads are an in-key keyboard (rows a fourth apart,
+  like Live). Roots are blue, scale notes white, sounding notes green.
+  **Octave up/down** shift it; **Scale** jumps to the Scale page.
+- **Play** = play, **Record** = loop (record), **Mute** = rest/mute. They keep
+  the hold gestures: hold Record to delete the last step, hold Play + Record to
+  clear. **Tap Tempo** taps.
+
+The MIDI details (SysEx display format, pad/encoder/button numbers, LED colour
+values) were checked against Ableton's own Push remote script, not guessed.
+`node tools/push1-test.mjs` checks the profile against a fake Push.
+
 ## Build the engine
 
 The compiled `web/chompfe.wasm` is committed, so you only need this if you
@@ -85,6 +140,7 @@ change the C++.
 2. `bash engine/build.sh` (looks for `em++` on PATH, else `$EMSDK` or `~/emsdk`).
 3. `node tools/render-test.mjs` renders test notes offline into `test-out/*.wav`
    and checks pitch, release, reverb tail and sequencer timing.
+   `node tools/push1-test.mjs` checks the Push 1 profile.
 
 To re-vendor from upstream: clone the CHOMPI repo into `upstream/` and run
 `bash engine/vendor.sh`. It records the commit in `engine/vendor/UPSTREAM.txt`.
@@ -110,7 +166,11 @@ web/
   js/patch.js        presets, share links, session restore
   js/ui/knob.js      knob control
   js/ui/seqgrid.js   32-step grid
-  js/app.js          UI wiring, keyboards, transport
+  js/app.js          UI wiring, keyboards, transport, controller API
+  js/midi/manager.js Web MIDI, device detection by port name
+  js/midi/push1.js   Push 1 profile
+  js/midi/generic.js notes-only fallback
+  js/scales.js       scales + pad layouts
   wavetables/        the 7 factory tables (Serum format)
 tools/render-test.mjs  offline render + checks
 ```

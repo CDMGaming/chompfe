@@ -91,6 +91,7 @@ export class ChompfeEngine {
       seqPlaying: !!x.cf_seq_playing(),
       seqRecording: !!x.cf_seq_recording(),
       seqMuted: !!x.cf_seq_muted(),
+      seqGateOpen: !!x.cf_seq_gate_open(),
       seqIndex: x.cf_seq_index(),
       seqLength: x.cf_seq_get_length(),
       seqFlags: x.cf_seq_flags(), // read-and-clear: 1 full, 2 cleared all, 4 steps removed

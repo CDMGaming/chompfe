@@ -5,6 +5,7 @@ import { PARAMS, BY_ID, CLOCK_DIVS } from './params.js';
 import { FRAME_SIZE, FRAMES } from './wavetable.js';
 import { Knob } from './ui/knob.js';
 import { SeqGrid, noteName } from './ui/seqgrid.js';
+import { MidiManager } from './midi/manager.js';
 import {
   defaultValues, encodeLink, decodeLink, linkFromLocation, linkUrl,
   loadPresets, savePresets, soundFrom, applySound, loadSession, saveSession, NUM_SLOTS, SEQ_STEPS,
@@ -30,6 +31,11 @@ if (restored) {
 if (shared) $('start-shared').hidden = false;
 
 let lastNote = 60;
+let outDb = DEFAULT_OUTPUT_DB;
+
+// Controllers listen here: 'param' (detail: id), 'state', 'presets'
+const bus = new EventTarget();
+const emit = (type, detail) => bus.dispatchEvent(new CustomEvent(type, { detail }));
 
 // ------------------------------------------------------------ toast
 let toastTimer = 0;
@@ -60,6 +66,7 @@ function setValue(id, v, opts = {}) {
   if (id === P.GATE) { grid.gate = v; grid.render(); }
   if (!opts.fromPreset) markPresetDirty();
   scheduleSave();
+  emit('param', id);
 }
 
 const HUES = { wave: 'var(--lime)', filter: 'var(--coral)', shape: 'var(--sun)', motion: 'var(--sky)', space: 'var(--violet)', output: 'var(--ink)' };
@@ -214,12 +221,13 @@ const grid = new SeqGrid($('grid'), {
   setStep: (i, n) => { synth.send({ t: 'seqStep', i, n }); scheduleSave(); },
   setLength: (n) => { synth.send({ t: 'seqLength', n }); $('len').textContent = n; scheduleSave(); },
   lastNote: () => lastNote,
-  preview: (n) => {
-    if (synth.state.seqPlaying) return; // the loop is already sounding
-    synth.noteOn(n, 90);
-    setTimeout(() => synth.noteOff(n), 140);
-  },
+  preview: (n) => preview(n),
 });
+function preview(n) {
+  if (synth.state.seqPlaying) return; // the loop is already sounding
+  synth.noteOn(n, 90);
+  setTimeout(() => synth.noteOff(n), 140);
+}
 grid.steps = initialSeq.steps.slice();
 grid.length = initialSeq.length;
 grid.gate = values[P.GATE];
@@ -280,6 +288,7 @@ function onEngineState(s) {
     scheduleSave();
   }
   if (s.seqRecording || s.seqFlags) scheduleSave();
+  emit('state');
 }
 
 // ------------------------------------------------------------ presets
@@ -301,6 +310,7 @@ function buildPresets() {
   renderPresets();
 }
 function renderPresets() {
+  emit('presets');
   [...$('preset-slots').children].forEach((b, i) => {
     const p = presets[i];
     b.classList.toggle('filled', !!p);
@@ -548,8 +558,92 @@ $('start-btn').addEventListener('click', async () => {
 });
 
 $('panic').addEventListener('click', releaseAll);
+function setOutDb(db) {
+  outDb = db;
+  synth.setOutputDb(db);
+  $('outdb').value = db;
+  emit('param', 'out');
+}
 $('outdb').value = DEFAULT_OUTPUT_DB;
-$('outdb').addEventListener('input', (e) => synth.setOutputDb(parseFloat(e.target.value)));
+$('outdb').addEventListener('input', (e) => setOutDb(parseFloat(e.target.value)));
+
+// ------------------------------------------------------------ controllers
+// Everything a controller profile may do, in one place.
+const api = {
+  P, BY_ID, PARAMS,
+  get: (id) => values[id],
+  set: (id, v) => setValue(id, v),
+  getOutDb: () => outDb,
+  setOutDb,
+  noteOn: (src, note, vel) => press(src, note, vel),
+  noteOff: (src) => release(src),
+  releaseSources: (prefix) => { for (const k of [...held.keys()]) if (k.startsWith(prefix)) release(k); },
+  allNotesOff: () => releaseAll(),
+  preview,
+  play: (down) => playBtn(down),
+  loop: (down) => loopBtn(down),
+  rest: (down) => restBtn(down),
+  tap: () => synth.send({ t: 'tap' }),
+  state: () => synth.state,
+  seq: {
+    get steps() { return grid.steps; },
+    get length() { return grid.length; },
+    click: (i) => grid.click(i),
+    setStep: (i, n) => {
+      if (i >= grid.length) grid.setLength(i + 1);
+      grid.edit(i, n);
+    },
+    setLength: (n) => grid.setLength(n),
+  },
+  presets: {
+    currentName: () => (currentPreset >= 0 && presets[currentPreset] ? presets[currentPreset].name : ''),
+    step: (dir) => {
+      // next/previous filled slot
+      for (let k = 1; k <= NUM_SLOTS; k++) {
+        const i = (((currentPreset < 0 ? (dir > 0 ? -1 : 0) : currentPreset) + dir * k) % NUM_SLOTS + NUM_SLOTS) % NUM_SLOTS;
+        if (presets[i]) { presetMode = 'none'; presetClick(i); return; }
+      }
+    },
+  },
+  on: (type, fn) => {
+    const h = (e) => fn(e.detail);
+    bus.addEventListener(type, h);
+    return () => bus.removeEventListener(type, h);
+  },
+};
+
+const midi = new MidiManager(api);
+window.chompfeDebug = { api, midi }; // for the console and the controller tests
+function renderMidiStatus() {
+  const btn = $('midi-btn');
+  const devs = midi.access ? midi.devices() : [];
+  if (!MidiManager.supported()) {
+    btn.textContent = 'no MIDI here';
+    btn.title = 'This browser has no Web MIDI. Chrome and Edge do; the computer keyboard and mouse still work.';
+    btn.disabled = true;
+  } else if (!midi.access) {
+    btn.textContent = 'connect MIDI';
+  } else if (!devs.length) {
+    btn.textContent = 'MIDI: nothing plugged in';
+  } else {
+    btn.textContent = `MIDI: ${devs.map((d) => d.label).join(' + ')}`;
+    btn.title = devs.map((d) => `${d.name} → ${d.label}`).join('\n')
+      + (midi.sysex ? '' : '\n(SysEx not allowed: no Push display)');
+  }
+}
+midi.addEventListener('change', renderMidiStatus);
+$('midi-btn').addEventListener('click', async () => {
+  if (midi.access) { renderMidiStatus(); return; }
+  try {
+    await midi.enable();
+    toast(midi.sysex ? 'MIDI connected' : 'MIDI connected (without SysEx: no Push display)');
+  } catch (err) {
+    toast(`MIDI not available: ${err.message}`);
+  }
+  renderMidiStatus();
+});
+renderMidiStatus();
+MidiManager.supported() && MidiManager.alreadyGranted().then((ok) => { if (ok) midi.enable().then(renderMidiStatus).catch(() => {}); });
 $('about-btn').addEventListener('click', () => $('about').showModal());
 
 buildControls();

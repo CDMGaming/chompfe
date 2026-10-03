@@ -2,7 +2,7 @@
 // processorOptions and are compiled synchronously here (the module is ~40 KB).
 import { ChompfeEngine } from './engine.js';
 
-const STATE_EVERY = 12; // blocks between UI state posts (~32 Hz at 48 kHz)
+const STATE_EVERY = 6; // blocks between UI state posts (~62 Hz at 48 kHz; drives Push LEDs too)
 
 class ChompfeProcessor extends AudioWorkletProcessor {
   constructor(options) {
