@@ -20,31 +20,68 @@ support are new.
 | 2 | Full on-screen controls, loop recorder + step grid, presets, URL sharing | done |
 | 3 | Ableton Push 1 profile, MIDI input | done (untested on hardware) |
 | 4 | Arturia MiniLab mkII profile, generic MIDI learn | done (untested on hardware) |
-| 5 | Custom wavetable import + guide | next |
+| 5 | Your own wavetables + guide | done |
 
 ## Run it locally
 
-Any static file server works, because the app is just files in `web/`. With
-Python:
+Any static file server works, because the app is just files in `web/`. For
+local use, `tools/serve.py` serves `web/` with caching turned off, so a reload
+always picks up changes:
 
 ```bash
-python -m http.server 8080 --directory web
+python tools/serve.py
 ```
+
+(If you use another server and changes don't show up, hard-reload with
+Ctrl+Shift+R.)
 
 Then open <http://localhost:8080> and click **tap to wake it up**.
 
 Browsers only allow AudioWorklets on `https://` or `localhost`, so opening
 `index.html` straight from disk won't work.
 
-### Playing
+### The panel
 
-- **Keys:** `A S D F G H J K L ; '` are the white keys and `W E T Y U O P` the
-  black keys, laid out like a piano. `A` is MIDI note 60.
-- **Octave:** `Z` / `X`. **Velocity:** `C` / `V`.
-- **Mouse/touch:** the on-screen keys (C3–C5, the hardware's 25-key range).
-  Clicking higher on a key plays softer. You can slide between keys.
-- **Knobs:** drag up/down (hold Shift for fine), scroll, or focus and use the
-  arrow keys. Double-click or Backspace resets.
+Chompfe is laid out like the WAVE firmware's hardware (its workflow, not its
+look): six push-button knobs, a mode switch, a star key, PLAY and LOOP, and a
+25-key keybed. It adds an LED display, which the hardware doesn't have, for
+readouts, the wavetable, the loop and step-by-step prompts.
+**labels** (top right) shows or hides the tags on every control, and the line
+under the panel explains whatever you point at.
+
+- **Knobs**: drag up/down, scroll, or focus and use the arrow keys. **Click**
+  a knob to flip between its two pages (dots under it). The caption under each
+  knob says what it does right now.
+- **Shift**: with the MODE switch down, hold the star key, **tap** it to latch,
+  or hold your computer's **Shift**. Captions turn yellow to show the shift
+  functions.
+- **Shift + click a knob** resets that page. Clicking TEMPO in rhythm taps a
+  tempo.
+
+| Knob | Page 1 | Page 1 + shift | Page 2 | Page 2 + shift |
+|---|---|---|---|---|
+| Pitch | fine tune | half-steps | scan the wavetable | change table |
+| Attack | attack | coarse attack | vibrato depth | vibrato rate |
+| Decay | release | coarse release | filter LFO depth | filter LFO rate |
+| Effects | delay ← → reverb | delay time / reverb size | filter | resonance |
+| Tempo | tempo | clock divide | | |
+| Volume | volume | compressor | pan | compressor |
+
+- **Keys** play notes (C3–C5). In shift, **white keys 1–14** recall sounds and
+  **15** is the default sound. **Black keys**: « » octave, gate 10 / 50 / 100%,
+  pitch / filter LFO on/off, and ERASE / COPY / SAVE. For those three: press
+  it, pick a white key, then press the star key to confirm. The display walks
+  you through it.
+- **MODE switch up**: the star key adds a rest while recording and mutes the
+  loop while held.
+- **Computer keys**: `A S D F G H J K L ; '` are white keys and
+  `W E T Y U O P` black keys. `Z`/`X` octave, `C`/`V` velocity. With Shift
+  held, they reach the keybed's shift functions (`A` = slot 1, `W` = «, ...).
+  `Space` = PLAY, `Enter` = LOOP, `Q` = rest.
+
+Below the panel are drawers for things the hardware doesn't have: the loop as
+a 32-step grid, sounds and sharing, wavetables (view, import, export), every
+parameter on its own knob (handy for MIDI learn), and a cheat sheet.
 
 ### The loop (the hardware's note-loop recorder)
 
@@ -55,12 +92,22 @@ Browsers only allow AudioWorklets on `https://` or `localhost`, so opening
 | **play + loop** | `Space`+`Enter` | Hold both ~1.25 s: clear the loop |
 | **rest / mute** | `Q` | While recording: add a rest. Otherwise: hold to mute the loop |
 
-While recording, each key you **let go of** becomes the next step (that's how
-the firmware does it), up to 32 steps. MIDI keyboards and pads record too.
+Recording works two ways:
 
-The same 32 steps are shown as a grid. Click a step to switch it between note
-and rest, click past the end to extend the loop, drag a step up/down (or
-scroll, or use the arrow keys) to change its note. Tempo, tap tempo, step
+- **Loop stopped:** each key you **let go of** becomes the next step (that's
+  how the hardware does it), up to 32 steps. **rest** adds an empty step.
+- **Loop playing:** each note you play replaces the step under the playhead,
+  rounded to the nearer step, and the loop keeps its length (overdub). **rest**
+  clears the step under the playhead. This one is a Chompfe addition; the
+  hardware always appended.
+
+MIDI keyboards and pads record too.
+
+The same 32 steps are shown as a grid. The **selected note** is the last note
+you played (shown next to the loop length). Click a step to put the selected
+note there; click a step that already has it to make it a rest (right-click or
+Delete also clears). Click past the end to extend the loop. Drag a step up/down
+(or scroll, or use the arrow keys) to change its note. Tempo, tap tempo, step
 length and gate (10 / 50 / 100 %, the hardware's three choices) are next to it.
 
 ### Sounds and links
@@ -74,10 +121,102 @@ length and gate (10 / 50 / 100 %, the hardware's three choices) are next to it.
   state. Nothing is sent to a server; it's all in the part after `#`.
 - The last state is also remembered in this browser between visits.
 
+## Your own wavetables
+
+Click **load your own…** under the wavetable slots, or drag a file onto a
+slot. Chompfe works out what it is:
+
+- **A wavetable** (Serum-style: frames of 2048 samples back to back, or any
+  frame size given in the file's `clm` chunk). 33 frames fit exactly; other
+  counts are spread across the 33 frames.
+- **A recording** (anything else): pick the stretch you want with **start** and
+  **end**, and Chompfe turns it into 33 frames that scan through that stretch.
+
+WAV works in every browser. MP3, M4A (phone voice memos), OGG and FLAC work
+where the browser can decode them (Chrome and Edge decode all of these;
+Safari decodes MP3/M4A).
+
+The new table is loaded into the slot straight away, so you can play while you
+adjust. **keep it** saves it in this browser (it's still there next visit);
+**cancel** puts the old table back. Under the slots:
+
+- **save .wav** downloads the current slot as a wavetable file. It has the same
+  byte layout as the factory files (audio from byte 136, a `clm` chunk), so
+  other wavetable synths can open it, and it should also load on the original
+  hardware's SD card (not tested on hardware).
+- **back to factory** puts the original table back in that slot.
+
+Share links carry settings, not tables, because a table is ~270 KB. If your
+sound uses your own table, send the `.wav` along with the link; your friend
+drops it into the same slot.
+
+### Making tables from your own recordings
+
+**How it works.** The oscillator plays one 2048-sample cycle at a time, and the
+**Frame** knob moves through 33 of them. A good table is a sound that *changes
+over time*, captured one cycle at a time: frame 1 is the start of your stretch,
+frame 33 the end. When you play, the table follows your keyboard; the pitch of
+the recording doesn't matter.
+
+There are two ways to turn a recording into frames (**auto** picks for you):
+
+- **one cycle per frame**: for anything with a clear pitch (voice, a held
+  instrument note, another synth). Chompfe finds the pitch, cuts exactly one
+  real cycle at 33 points in your stretch and stretches each to 2048 samples.
+  This keeps the actual character of the sound.
+- **spectral**: for anything without a steady pitch (drums, noise, breath,
+  field recordings, chords). Each frame is rebuilt from the sound's spectrum
+  at that point (its first 255 partials). Expect breathy, glassy, vocal-ish
+  textures rather than a copy of the sound.
+
+**Recording tips**
+
+1. **One held note**, not a melody or chord. Hum, sing, bow, or hold a key.
+   Pitches between about 50 Hz and 1 kHz are detected best (most voices and
+   instruments).
+2. **Make it change on purpose.** That change is what the Frame knob will
+   play. Ideas:
+   - sing a slow vowel sweep: "ooo → aaa → eee";
+   - open or close a filter on another synth while holding a note;
+   - pluck a string and let it ring out (bright → dull);
+   - blow across a bottle harder and softer;
+   - whistle while slowly moving your tongue.
+3. **Keep it steady and dry.** Little vibrato, no glide, no reverb or delay on
+   the recording (they smear the cycles). A quiet room helps.
+4. **A few seconds is plenty.** 1–4 s gives a smooth sweep; trim the attack and
+   any silence with **start** / **end**.
+5. A phone voice memo is fine. Mono or stereo both work (stereo is mixed down).
+
+**In Chompfe**
+
+1. Drop the file on a slot.
+2. Drag **start** and **end** so the highlighted part is the bit you like
+   (skip the first moment of a note; it's often noisy).
+3. Play some keys and turn **Frame** while the dialog is open. Try both
+   conversion modes.
+4. **keep it**. Then **save .wav** if you want the file for later or to send
+   to a friend.
+
+**Good to know**
+
+- Every table is normalised to the same level as the factory tables, and DC
+  offset is removed, so imports don't jump out in volume.
+- The engine plays tables as they are, without band-limiting, like the
+  original. Very bright tables (lots of high harmonics) get gritty on high
+  notes. That's part of the character; use the filter, or the spectral mode,
+  which keeps only 255 partials.
+- If pitch detection fails ("No steady pitch found"), choose a steadier
+  stretch, or use spectral.
+- If you'd rather build tables elsewhere: any editor that exports Serum-style
+  wavetables (frames of 2048 samples, mono) works, with any number of frames.
+
 ## MIDI controllers
 
-Click **connect MIDI** (Chrome or Edge; Safari has no Web MIDI, Firefox asks
-for a permission add-on). Allow SysEx when asked; the Push display needs it.
+Click **connect MIDI** in **Chrome or Edge**. Safari has no Web MIDI.
+Firefox puts Web MIDI behind a one-time "site permission add-on" for each
+site; on a local server it may just refuse with "WebMIDI requires a site
+permission add-on to activate". Use Chrome or Edge for controllers (the
+computer keyboard and mouse work everywhere). Allow SysEx when asked; the Push display needs it.
 Devices are recognised by port name. Once connected, the MIDI button opens a
 panel listing your devices and learned mappings.
 
@@ -134,8 +273,12 @@ were cross-checked against Ardour's MiniLab mkII map and two other drivers.
 
 ### Ableton Push (1st generation)
 
-Plug it in; Live doesn't need to be running. Chompfe uses the Push's "Live"
-port and leaves the "User" port alone.
+Plug it in. Quit Live first (on Windows only one program can use a MIDI port
+at a time). Chompfe switches the Push into Live mode, writes the display and
+LEDs on its first port, and listens on both of its ports.
+
+If something doesn't respond, open the MIDI panel: the **Incoming** box shows
+every message as it arrives and which port it came on.
 
 ```
  [enc1] [enc2] [enc3] [enc4] [enc5] [enc6] [enc7] [enc8]   [tempo] [swing=frame]  [master=out]
@@ -165,7 +308,9 @@ port and leaves the "User" port alone.
 
 - **Shift** + encoder = fine. **Delete** + touching an encoder resets it.
 - **Session** button: top half is the 32-step loop, bottom half is an in-key
-  keyboard. Tap a step to toggle it, hold a step and hit a key to set its note,
+  keyboard. Play a key pad to select a note (it stays sky blue), then tap steps
+  to place it; tapping a step that already has that note clears it. Or hold a
+  step and hit a key to set just that step,
   **Shift** + step sets the loop length there, **Delete** + step makes it a rest.
   The playing step is white while the gate holds the note, so you can see the
   gate length; green steps have notes, grey ones are rests.
@@ -192,6 +337,9 @@ change the C++.
    and checks pitch, release, reverb tail and sequencer timing.
    `node tools/push1-test.mjs` and `node tools/controllers-test.mjs` check
    the Push, MiniLab, generic and MIDI-learn code against fake devices.
+   `node tools/panel-test.mjs` checks the panel against the WAVE manual.
+   `node tools/wavetable-test.mjs` checks importing (pitch detection,
+   one-cycle frames, spectral mode) and the export file layout.
 
 To re-vendor from upstream: clone the CHOMPI repo into `upstream/` and run
 `bash engine/vendor.sh`. It records the commit in `engine/vendor/UPSTREAM.txt`.
@@ -213,11 +361,15 @@ web/
   js/engine.js       wasm wrapper (shared by the worklet and the Node test)
   js/synth.js        AudioContext graph, table loading, messaging
   js/params.js       parameter names, ranges, value readouts
-  js/wavetable.js    WAV parser + 33x2048 table shaping
+  js/wavetable.js    WAV parser, table shaping, recording -> table, export
+  js/tablestore.js   custom tables saved in the browser (IndexedDB)
+  js/ui/importer.js  import dialog
   js/patch.js        presets, share links, session restore
   js/ui/knob.js      knob control
   js/ui/seqgrid.js   32-step grid
   js/app.js          UI wiring, keyboards, transport, controller API
+  js/panel/          the instrument: firmware-ui.js (the hardware's control
+                     logic, ported), panel.js (DOM, LEDs), ledmatrix.js (display)
   js/midi/manager.js Web MIDI, device detection by port name
   js/midi/push1.js   Push 1 profile
   js/midi/minilab2.js MiniLab mkII profile

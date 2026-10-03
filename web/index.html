@@ -7,13 +7,14 @@
   <meta name="description" content="Chompfe: an 8-voice wavetable synth in the browser.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,800&family=Fredoka:wght@500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="css/style.css">
 </head>
-<body>
+<body class="labels">
   <header class="top">
     <h1 class="wordmark">chompfe<span class="dot">.</span></h1>
     <div class="meter" aria-hidden="true"><div class="meter-fill" id="vu"></div></div>
+    <button id="labels-btn" class="btn" type="button" aria-pressed="true" title="Show or hide the labels on the panel">labels</button>
     <button id="midi-btn" class="btn" type="button">connect MIDI</button>
     <button id="share" class="btn accent" type="button">copy link</button>
     <label class="outvol" title="Output level after the engine (browser-side makeup gain + limiter)">
@@ -23,92 +24,138 @@
   </header>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-  <main class="rack">
-    <section class="panel wave" aria-labelledby="h-wave">
-      <h2 id="h-wave">wave</h2>
-      <div class="scope-wrap">
-        <canvas id="scope" width="720" height="220" aria-label="Current wavetable frame"></canvas>
-        <div class="scope-label"><span id="table-name">table 1</span> · <span id="frame-label">frame 1/33</span></div>
-      </div>
-      <div class="slots" id="slots" role="radiogroup" aria-label="Wavetable slot"></div>
-      <div class="knobs" id="k-wave"></div>
-      <div class="row">
-        <label class="toggle"><input type="checkbox" id="snap"> <span>pitch in semitones</span></label>
-        <div class="seg" id="octave" role="radiogroup" aria-label="Octave"></div>
-      </div>
-    </section>
+  <main class="stage">
+    <div class="doodles" aria-hidden="true">
+      <svg class="dd d1" viewBox="-12 -12 24 24"><path d="M0-11 2.6-3.6 10.5-3.4 4.2 1.4 6.5 9 0 4.5-6.5 9-4.2 1.4-10.5-3.4-2.6-3.6Z" fill="#ffe08a" stroke="#2f2440" stroke-width="1.4" stroke-linejoin="round"/></svg>
+      <svg class="dd d2" viewBox="-12 -12 24 24"><path d="M0-10C1.5-2 2-1.5 10 0 2 1.5 1.5 2 0 10-1.5 2-2 1.5-10 0-2-1.5-1.5-2 0-10Z" fill="#b8f0dc" stroke="#2f2440" stroke-width="1.4" stroke-linejoin="round"/></svg>
+      <svg class="dd d3" viewBox="0 0 80 24"><path d="M2 12c6-12 12-12 18 0s12 12 18 0 12-12 18 0 12 12 18 0" fill="none" stroke="#2f2440" stroke-width="2.4" stroke-linecap="round"/></svg>
+      <svg class="dd d4" viewBox="0 0 30 34"><path d="M11 26V5l15-4v20" fill="none" stroke="#2f2440" stroke-width="2.4" stroke-linejoin="round"/><ellipse cx="7" cy="27" rx="5.5" ry="4.5" fill="#ff9fb5" stroke="#2f2440" stroke-width="2"/><ellipse cx="22" cy="22" rx="5.5" ry="4.5" fill="#ff9fb5" stroke="#2f2440" stroke-width="2"/></svg>
+      <svg class="dd d5" viewBox="0 0 70 40"><path d="M14 34h44a11 11 0 0 0 0-22 16 16 0 0 0-30-4A12 12 0 0 0 14 34Z" fill="#fff8ee" stroke="#2f2440" stroke-width="2.2" stroke-linejoin="round"/><circle cx="30" cy="24" r="1.8" fill="#2f2440"/><circle cx="42" cy="24" r="1.8" fill="#2f2440"/><path d="M33 28q3 2.5 6 0" fill="none" stroke="#2f2440" stroke-width="1.8" stroke-linecap="round"/></svg>
+      <svg class="dd d6" viewBox="0 0 64 64"><path d="M10 38c0-15 9-27 22-27s22 12 22 27c0 9-6 15-22 15S10 47 10 38z" fill="#b8f0dc" stroke="#2f2440" stroke-width="3"/><circle cx="24" cy="33" r="3.4" fill="#2f2440"/><circle cx="40" cy="33" r="3.4" fill="#2f2440"/><path d="M24 42c2.5-3 5.5 3 8 0s5.5 3 8 0" fill="none" stroke="#2f2440" stroke-width="2.6" stroke-linecap="round"/><path d="M32 11c0-4 3-7 7-6" fill="none" stroke="#2f2440" stroke-width="3" stroke-linecap="round"/></svg>
+      <svg class="dd d7" viewBox="-12 -12 24 24"><path d="M0-11 2.6-3.6 10.5-3.4 4.2 1.4 6.5 9 0 4.5-6.5 9-4.2 1.4-10.5-3.4-2.6-3.6Z" fill="#c9b6ff" stroke="#2f2440" stroke-width="1.4" stroke-linejoin="round"/></svg>
+      <svg class="dd d8" viewBox="0 0 40 36"><path d="M20 33S3 22 3 11a8.5 8.5 0 0 1 17-2 8.5 8.5 0 0 1 17 2c0 11-17 22-17 22Z" fill="#ffb3c4" stroke="#2f2440" stroke-width="2.2" stroke-linejoin="round"/></svg>
+      <svg class="dd d9" viewBox="0 0 80 24"><path d="M2 12h8l4-9 6 18 6-18 6 18 6-18 6 18 4-9h14" fill="none" stroke="#2f2440" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/></svg>
+      <svg class="dd d10" viewBox="-12 -12 24 24"><path d="M0-10C1.5-2 2-1.5 10 0 2 1.5 1.5 2 0 10-1.5 2-2 1.5-10 0-2-1.5-1.5-2 0-10Z" fill="#ffe08a" stroke="#2f2440" stroke-width="1.4" stroke-linejoin="round"/></svg>
+      <svg class="dd d11" viewBox="0 0 64 64"><path d="M10 38c0-15 9-27 22-27s22 12 22 27c0 9-6 15-22 15S10 47 10 38z" fill="#ffb3c4" stroke="#2f2440" stroke-width="3"/><path d="M20 33q4-4 8 0M36 33q4-4 8 0" fill="none" stroke="#2f2440" stroke-width="2.6" stroke-linecap="round"/><path d="M26 42q6 6 12 0" fill="none" stroke="#2f2440" stroke-width="2.6" stroke-linecap="round"/></svg>
+      <svg class="dd d12" viewBox="0 0 40 40"><circle cx="20" cy="20" r="11" fill="#c9b6ff" stroke="#2f2440" stroke-width="2.2"/><ellipse cx="20" cy="21" rx="19" ry="5.5" fill="none" stroke="#2f2440" stroke-width="2.2" transform="rotate(-18 20 20)"/></svg>
+    </div>
 
-    <section class="panel filter" aria-labelledby="h-filter">
-      <h2 id="h-filter">filter</h2>
-      <div class="knobs" id="k-filter"></div>
-    </section>
+    <section class="instrument" id="instrument" aria-label="Chompfe instrument"></section>
+    <p class="hint-line" id="hint" role="status">Hover or touch any control to see what it does. Hold the star key (or Shift) for the second functions printed on the keys.</p>
+    <div class="keys-help">
+      <span class="hint">computer keys <kbd>A</kbd>–<kbd>'</kbd> + <kbd>W E T Y U O P</kbd> · <kbd>Shift</kbd> = shift · <kbd>Z</kbd>/<kbd>X</kbd> octave (<span id="kb-oct">0</span>) · <kbd>C</kbd>/<kbd>V</kbd> velocity (<span id="kb-vel">100</span>) · <kbd>Space</kbd> play · <kbd>Enter</kbd> loop · <kbd>Q</kbd> rest</span>
+      <button id="panic" class="btn small" type="button">all notes off</button>
+    </div>
 
-    <section class="panel shape" aria-labelledby="h-shape">
-      <h2 id="h-shape">envelope</h2>
-      <div class="knobs" id="k-shape"></div>
-    </section>
-
-    <section class="panel motion" aria-labelledby="h-motion">
-      <h2 id="h-motion">wobble <small>filter LFO</small></h2>
-      <div class="knobs" id="k-wob"></div>
-      <h2>vibrato <small>pitch LFO</small></h2>
-      <div class="knobs" id="k-vib"></div>
-    </section>
-
-    <section class="panel space" aria-labelledby="h-space">
-      <h2 id="h-space">space</h2>
-      <div class="knobs" id="k-space"></div>
-    </section>
-
-    <section class="panel output" aria-labelledby="h-output">
-      <h2 id="h-output">output</h2>
-      <div class="knobs" id="k-output"></div>
-    </section>
-
-    <section class="panel seq" aria-labelledby="h-seq">
-      <div class="seq-head">
-        <h2 id="h-seq">loop</h2>
-        <div class="transport">
-          <button class="tbtn play" id="btn-play" data-learn="action:play" type="button" aria-pressed="false" title="Play / stop (Space)"><span class="ico"></span>play</button>
-          <button class="tbtn rec" id="btn-loop" data-learn="action:loop" type="button" aria-pressed="false" title="Arm recording (Enter). Hold to delete the last step. Hold with play to clear."><span class="ico"></span>loop</button>
-          <button class="tbtn rest" id="btn-rest" data-learn="action:rest" type="button" title="While recording: add a rest. Otherwise: hold to mute (Q)">rest / mute</button>
-          <button class="btn small" id="btn-clear" data-learn="action:clear" type="button">clear</button>
-        </div>
-        <div class="seq-opts">
-          <div class="knobs compact" id="k-seq"></div>
-          <button class="btn small" id="btn-tap" data-learn="action:tap" type="button" title="Tap twice or more">tap</button>
-          <div class="seg" id="div" role="radiogroup" aria-label="Step length"></div>
-          <div class="seg" id="gate" role="radiogroup" aria-label="Gate length"></div>
-          <div class="len">
-            <span>length</span>
-            <button class="btn small" id="len-dn" type="button" aria-label="Shorter loop">−</button>
-            <output id="len">0</output>
-            <button class="btn small" id="len-up" type="button" aria-label="Longer loop">+</button>
+    <div class="drawers">
+      <details class="drawer" id="dr-loop">
+        <summary>loop steps <small>the 32-step loop as a grid</small></summary>
+        <section class="panel seq" aria-labelledby="h-seq">
+          <div class="seq-head">
+            <h2 id="h-seq">loop</h2>
+            <div class="transport">
+              <button class="tbtn play" id="btn-play" data-learn="action:play" type="button" aria-pressed="false" title="Play / stop (Space)"><span class="ico"></span>play</button>
+              <button class="tbtn rec" id="btn-loop" data-learn="action:loop" type="button" aria-pressed="false" title="Arm recording (Enter). Hold to delete the last step. Hold with play to clear."><span class="ico"></span>loop</button>
+              <button class="tbtn rest" id="btn-rest" data-learn="action:rest" type="button" title="While recording: add a rest. Otherwise: hold to mute (Q)">rest / mute</button>
+              <button class="btn small" id="btn-clear" data-learn="action:clear" type="button">clear</button>
+            </div>
+            <div class="seq-opts">
+              <div class="knobs compact" id="k-seq"></div>
+              <button class="btn small" id="btn-tap" data-learn="action:tap" type="button" title="Tap twice or more">tap</button>
+              <div class="seg" id="div" role="radiogroup" aria-label="Step length"></div>
+              <div class="seg" id="gate" role="radiogroup" aria-label="Gate length"></div>
+              <span class="sel" title="The last note you played. Clicking a step puts this note there.">note <b id="sel-note">C4</b></span>
+              <div class="len">
+                <span>length</span>
+                <button class="btn small" id="len-dn" type="button" aria-label="Shorter loop">−</button>
+                <output id="len">0</output>
+                <button class="btn small" id="len-up" type="button" aria-label="Longer loop">+</button>
+              </div>
+            </div>
           </div>
+          <div class="grid" id="grid" aria-label="Loop steps"></div>
+          <p class="hint" id="seq-hint">Tap <b>loop</b>, play some keys (each key you let go of becomes a step, <b>rest</b> adds a gap), tap <b>loop</b> again, then <b>play</b>. While the loop plays, recording drops notes onto the step under the playhead. Or click steps to place the last note you played (click again to clear, or right-click); drag a step up/down to change its note.</p>
+        </section>
+      </details>
+
+      <details class="drawer" id="dr-sounds">
+        <summary>sounds &amp; sharing <small>the 14 slots, plus links</small></summary>
+        <section class="panel presets" aria-labelledby="h-presets">
+          <h2 id="h-presets">sounds</h2>
+          <div class="preset-bar">
+            <div class="preset-slots" id="preset-slots"></div>
+            <button class="btn small" id="p-init" type="button" title="Back to the default sound">init</button>
+            <button class="btn small" id="p-save" type="button" aria-pressed="false">save…</button>
+            <button class="btn small" id="p-erase" type="button" aria-pressed="false">erase…</button>
+          </div>
+          <p class="hint" id="preset-hint">Click a slot to load it. Sounds save in this browser; the loop and tempo travel with <b>copy link</b>.</p>
+        </section>
+      </details>
+
+      <details class="drawer" id="dr-tables">
+        <summary>wavetables <small>see the frames, bring your own</small></summary>
+        <section class="panel wave" aria-labelledby="h-wave">
+          <h2 id="h-wave">wave</h2>
+          <div class="scope-wrap">
+            <canvas id="scope" width="720" height="220" aria-label="Current wavetable frame"></canvas>
+            <div class="scope-label"><span id="table-name">table 1</span> · <span id="frame-label">frame 1/33</span></div>
+          </div>
+          <div class="slots" id="slots" role="radiogroup" aria-label="Wavetable slot"></div>
+          <div class="row table-tools">
+            <label class="btn small file-btn">load your own…<input type="file" id="table-file" accept=".wav,audio/*" hidden></label>
+            <button class="btn small" id="table-save" type="button" title="Download this slot as a Serum-format .wav">save .wav</button>
+            <button class="btn small" id="table-reset" type="button" hidden>back to factory</button>
+            <span class="dim drop-hint">or drop a .wav / recording on a slot</span>
+          </div>
+          <div class="knobs" id="k-wave"></div>
+          <div class="row">
+            <label class="toggle"><input type="checkbox" id="snap"> <span>pitch in semitones</span></label>
+            <div class="seg" id="octave" role="radiogroup" aria-label="Octave"></div>
+          </div>
+        </section>
+      </details>
+
+      <details class="drawer" id="dr-params">
+        <summary>all parameters <small>every setting on one knob each (handy for MIDI learn)</small></summary>
+        <div class="param-grid">
+          <section class="panel filter" aria-labelledby="h-filter"><h2 id="h-filter">filter</h2><div class="knobs" id="k-filter"></div></section>
+          <section class="panel shape" aria-labelledby="h-shape"><h2 id="h-shape">envelope</h2><div class="knobs" id="k-shape"></div></section>
+          <section class="panel motion" aria-labelledby="h-motion">
+            <h2 id="h-motion">wobble <small>filter LFO</small></h2>
+            <div class="knobs" id="k-wob"></div>
+            <h2>vibrato <small>pitch LFO</small></h2>
+            <div class="knobs" id="k-vib"></div>
+          </section>
+          <section class="panel space" aria-labelledby="h-space"><h2 id="h-space">space</h2><div class="knobs" id="k-space"></div></section>
+          <section class="panel output" aria-labelledby="h-output"><h2 id="h-output">output</h2><div class="knobs" id="k-output"></div></section>
         </div>
-      </div>
-      <div class="grid" id="grid" aria-label="Loop steps"></div>
-      <p class="hint" id="seq-hint">Tap <b>loop</b>, play some keys (each key you let go of becomes a step, <b>rest</b> adds a gap), tap <b>loop</b> again, then <b>play</b>. Or click steps to draw; drag a step up/down to change its note.</p>
-    </section>
+      </details>
 
-    <section class="panel presets" aria-labelledby="h-presets">
-      <h2 id="h-presets">sounds</h2>
-      <div class="preset-bar">
-        <div class="preset-slots" id="preset-slots"></div>
-        <button class="btn small" id="p-init" type="button" title="Back to the default sound">init</button>
-        <button class="btn small" id="p-save" type="button" aria-pressed="false">save…</button>
-        <button class="btn small" id="p-erase" type="button" aria-pressed="false">erase…</button>
-      </div>
-      <p class="hint" id="preset-hint">Click a slot to load it. Sounds save in this browser; the loop and tempo travel with <b>copy link</b>.</p>
-    </section>
-
-    <section class="panel keys-panel" aria-label="Keyboard">
-      <div class="keys-head">
-        <span class="hint">keys <kbd>A</kbd>–<kbd>'</kbd> + <kbd>W E T Y U O P</kbd> · <kbd>Z</kbd>/<kbd>X</kbd> octave (<span id="kb-oct">0</span>) · <kbd>C</kbd>/<kbd>V</kbd> velocity (<span id="kb-vel">100</span>) · <kbd>Space</kbd> play · <kbd>Enter</kbd> loop · <kbd>Q</kbd> rest</span>
-        <button id="panic" class="btn small" type="button">all notes off</button>
-      </div>
-      <div class="keyboard" id="keyboard"></div>
-    </section>
+      <details class="drawer" id="dr-cheat">
+        <summary>cheat sheet <small>what every knob and key does</small></summary>
+        <section class="panel cheat">
+          <table class="cheat-table">
+            <thead><tr><th>knob</th><th>page 1: turn</th><th>page 1: shift + turn</th><th>page 2: turn</th><th>page 2: shift + turn</th></tr></thead>
+            <tbody>
+              <tr><th>pitch</th><td>fine tune</td><td>half-steps</td><td>scan the wavetable</td><td>change table</td></tr>
+              <tr><th>attack</th><td>envelope attack</td><td>coarse attack</td><td>vibrato depth</td><td>vibrato rate</td></tr>
+              <tr><th>decay</th><td>envelope release</td><td>coarse release</td><td>filter LFO depth</td><td>filter LFO rate</td></tr>
+              <tr><th>effects</th><td>← delay · reverb →</td><td>delay time / reverb size</td><td>filter</td><td>resonance</td></tr>
+              <tr><th>tempo</th><td>tempo</td><td>clock divide</td><td colspan="2">one page; press it in rhythm to tap a tempo</td></tr>
+              <tr><th>volume</th><td>volume</td><td>compressor</td><td>pan</td><td>compressor</td></tr>
+            </tbody>
+          </table>
+          <ul class="cheat-list">
+            <li><b>Press a knob</b> to flip between its two pages (the dots under it show which). <b>Shift + press</b> resets that page.</li>
+            <li><b>Shift</b>: with the mode switch down, hold the star key, tap it to latch, or hold your computer's Shift key.</li>
+            <li><b>Shift + white keys</b> recall sounds 1–14; key 15 is the default sound.</li>
+            <li><b>Shift + black keys</b>: « » octave, gate 10 / 50 / 100%, pitch and filter LFO on/off, and erase / copy / save. For those three: press it, pick a slot, then press the star key to confirm.</li>
+            <li><b>Loop</b>: tap LOOP to record, play notes (released keys become steps), tap LOOP again, then PLAY. While it plays, recording replaces the step under the playhead. Hold LOOP to delete the last step; hold PLAY + LOOP to clear.</li>
+            <li><b>Mode switch up</b>: the star key adds a rest while recording, or mutes the loop while held.</li>
+          </ul>
+        </section>
+      </details>
+    </div>
   </main>
 
   <footer class="foot">
@@ -150,10 +197,43 @@ SOFTWARE.</pre>
     <form method="dialog"><button class="btn">close</button></form>
   </dialog>
 
+  <dialog id="import-dlg" class="import" aria-labelledby="imp-title">
+    <h2 id="imp-title">import</h2>
+    <p class="dim" id="imp-kind"></p>
+    <div id="imp-rec">
+      <canvas id="imp-overview" width="640" height="70" aria-hidden="true"></canvas>
+      <div class="imp-range">
+        <label>start <input type="range" id="imp-start" min="0" max="1" step="0.001" value="0"></label>
+        <label>end <input type="range" id="imp-end" min="0" max="1" step="0.001" value="1"></label>
+      </div>
+      <div class="row">
+        <span class="seg-label">how</span>
+        <div class="seg" id="imp-mode" role="radiogroup" aria-label="Conversion">
+          <button type="button" role="radio" data-mode="auto">auto</button>
+          <button type="button" role="radio" data-mode="pitched" title="One real cycle per frame. For notes: voice, instruments, synths.">one cycle per frame</button>
+          <button type="button" role="radio" data-mode="spectral" title="Frames rebuilt from the spectrum. Works on anything: noise, drums, textures.">spectral</button>
+        </div>
+      </div>
+    </div>
+    <canvas id="imp-preview" width="640" height="200" aria-label="Preview of the 33 frames"></canvas>
+    <p class="dim" id="imp-status" role="status"></p>
+    <div class="row">
+      <span class="seg-label">into slot</span>
+      <div class="seg" id="imp-slot" role="radiogroup" aria-label="Target slot"></div>
+    </div>
+    <p class="dim">It's already loaded in that slot: play some keys to hear it.</p>
+    <div class="row">
+      <button class="btn accent" id="imp-keep" type="button">keep it</button>
+      <button class="btn" id="imp-cancel" type="button">cancel</button>
+    </div>
+  </dialog>
+
   <dialog id="midi-dlg" aria-labelledby="midi-h">
     <h2 id="midi-h">MIDI</h2>
     <ul class="devs" id="midi-devs"></ul>
     <p class="dim" id="midi-sysex" hidden>SysEx wasn't allowed, so the Push display and MiniLab pad colours are off. Reload and allow it to get them back.</p>
+    <h3>Incoming <span class="dim">(press a pad or turn a knob to check it arrives)</span></h3>
+    <pre class="midi-mon" id="midi-mon" aria-live="off">nothing yet</pre>
     <h3>Learned mappings</h3>
     <p class="dim">These sit on top of the built-in Push / MiniLab layouts and work with any device. Saved in this browser.</p>
     <div class="maps-wrap"><table class="maps"><tbody id="midi-maps"></tbody></table></div>

@@ -1,12 +1,16 @@
 // Chompfe UI: knobs, wavetable view, loop recorder/step grid, presets, share
 // links, on-screen and computer keyboards.
-import { Synth, P, DEFAULT_OUTPUT_DB } from './synth.js';
+import { Synth, P, DEFAULT_OUTPUT_DB, TABLE_NAMES } from './synth.js';
+import { Panel } from './panel/panel.js';
 import { PARAMS, BY_ID, CLOCK_DIVS } from './params.js';
 import { FRAME_SIZE, FRAMES } from './wavetable.js';
 import { Knob } from './ui/knob.js';
 import { SeqGrid, noteName } from './ui/seqgrid.js';
 import { MidiManager } from './midi/manager.js';
 import { sourceLabel } from './midi/learn.js';
+import { Importer } from './ui/importer.js';
+import * as tableStore from './tablestore.js';
+import { encodeSerumWav } from './wavetable.js';
 import {
   defaultValues, encodeLink, decodeLink, linkFromLocation, linkUrl,
   loadPresets, savePresets, soundFrom, applySound, loadSession, saveSession, NUM_SLOTS, SEQ_STEPS,
@@ -40,12 +44,12 @@ const emit = (type, detail) => bus.dispatchEvent(new CustomEvent(type, { detail 
 
 // ------------------------------------------------------------ toast
 let toastTimer = 0;
-function toast(msg) {
+function toast(msg, ms = 1800) {
   const t = $('toast');
   t.textContent = msg;
   t.classList.add('show');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => t.classList.remove('show'), 1800);
+  toastTimer = setTimeout(() => t.classList.remove('show'), ms);
 }
 
 // ------------------------------------------------------------ parameters
@@ -173,7 +177,7 @@ function buildSlots() {
     b.setAttribute('role', 'radio');
     b.setAttribute('aria-label', `Wavetable ${i + 1}`);
     b.dataset.learn = `table:${i}`;
-    b.innerHTML = `<canvas width="120" height="36"></canvas><span>${i + 1}</span>`;
+    b.innerHTML = `<canvas width="120" height="36"></canvas><span>${i + 1}</span><span class="slot-name"></span>`;
     b.addEventListener('click', () => setValue(P.TABLE, i));
     root.append(b);
   }
@@ -181,8 +185,15 @@ function buildSlots() {
 }
 function updateSlotSelection() {
   const t = Math.round(values[P.TABLE]);
-  [...$('slots').children].forEach((b, i) => b.setAttribute('aria-checked', String(i === t)));
-  $('table-name').textContent = `table ${t + 1}`;
+  [...$('slots').children].forEach((b, i) => {
+    b.setAttribute('aria-checked', String(i === t));
+    const name = synth.custom[i];
+    b.classList.toggle('custom', !!name);
+    b.querySelector('.slot-name').textContent = name || TABLE_NAMES[i];
+    b.title = name ? `${i + 1}: ${name} (yours)` : `${i + 1}: factory table`;
+  });
+  $('table-name').textContent = `table ${t + 1}: ${synth.custom[t] || TABLE_NAMES[t]}`;
+  $('table-reset').hidden = !synth.custom[t];
 }
 function drawWave(canvas, data, offset, color, lineWidth, ghost) {
   const g = canvas.getContext('2d');
@@ -207,18 +218,18 @@ function drawWave(canvas, data, offset, color, lineWidth, ghost) {
     for (let d = -3; d <= 3; d++) {
       const f = offset / FRAME_SIZE + d;
       if (d === 0 || f < 0 || f >= FRAMES) continue;
-      line(f * FRAME_SIZE, `rgba(198, 242, 94, ${0.12 - Math.abs(d) * 0.03})`, 1.5);
+      line(f * FRAME_SIZE, `rgba(127, 95, 224, ${0.22 - Math.abs(d) * 0.05})`, 1.5);
     }
   }
   line(offset, color, lineWidth);
 }
 function drawSlots() {
-  [...$('slots').children].forEach((b, i) => drawWave(b.querySelector('canvas'), synth.tables[i], 8 * FRAME_SIZE, '#c6f25e', 2));
+  [...$('slots').children].forEach((b, i) => drawWave(b.querySelector('canvas'), synth.tables[i], 8 * FRAME_SIZE, '#7f5fe0', 2));
 }
 function drawScope() {
   const t = Math.round(values[P.TABLE]);
   const f = Math.round(values[P.FRAME]);
-  drawWave($('scope'), synth.tables[t], f * FRAME_SIZE, '#f3ead8', 3, true);
+  drawWave($('scope'), synth.tables[t], f * FRAME_SIZE, '#2f2440', 3, true);
   $('frame-label').textContent = `frame ${f + 1}/${FRAMES}`;
 }
 
@@ -385,7 +396,10 @@ $('share').addEventListener('click', async () => {
   history.replaceState(null, '', url);
   try {
     await navigator.clipboard.writeText(url);
-    toast('link copied: send it to someone');
+    const t = Math.round(values[P.TABLE]);
+    toast(synth.custom[t]
+      ? `link copied. Heads up: table ${t + 1} is your own; links carry settings, not tables (send the .wav too)`
+      : 'link copied: send it to someone');
   } catch {
     // clipboard blocked: the link is still in the address bar
     toast('link is in the address bar: copy it from there');
@@ -413,7 +427,7 @@ function press(src, note, vel = 100) {
   held.set(src, note);
   sustained.delete(note);
   down.add(note);
-  lastNote = note;
+  if (lastNote !== note) { lastNote = note; $('sel-note').textContent = noteName(note); emit('param', 'note'); }
   synth.noteOn(note, vel);
   markKey(note);
 }
@@ -455,6 +469,7 @@ function setBend(semitones) {
 const keyEls = new Map();
 function buildKeyboard() {
   const root = $('keyboard');
+  if (!root) return; // replaced by the panel's keybed
   const isBlack = (n) => [1, 3, 6, 8, 10].includes(n % 12);
   const whites = [];
   for (let n = LOW; n <= HIGH; n++) if (!isBlack(n)) whites.push(n);
@@ -521,7 +536,9 @@ window.addEventListener('keydown', (e) => {
   if (e.metaKey || e.ctrlKey || e.altKey || isTextField(e.target) || $('about').open) return;
   if (e.code in KEYMAP) {
     e.preventDefault();
-    if (!e.repeat) press(`k${e.code}`, 60 + kbOct * 12 + KEYMAP[e.code], kbVel);
+    if (e.repeat) return;
+    if (panel.fw.shift) panel.fw.keyDown(KEYMAP[e.code]); // shift functions of the keybed
+    else press(`k${e.code}`, 60 + kbOct * 12 + KEYMAP[e.code], kbVel);
   } else if (e.code === 'Space') {
     e.preventDefault(); // Space is always PLAY, even with a button focused
     if (!e.repeat) { transportHeld.add('Space'); playBtn(true); }
@@ -572,6 +589,13 @@ $('start-btn').addEventListener('click', async () => {
   $('start-btn').disabled = true;
   try {
     await synth.start();
+    for (const [slot, t] of await tableStore.loadAll()) {
+      if (slot >= 0 && slot < 7 && t.data.length === synth.tables[slot].length) {
+        synth.loadTable(slot, t.data);
+        synth.custom[slot] = t.name;
+      }
+    }
+    updateSlotSelection();
     synth.send({ t: 'params', list: PARAMS.map((p) => [p.id, values[p.id]]) });
     synth.send({ t: 'seqSteps', notes: grid.steps });
     synth.send({ t: 'seqLength', n: grid.length });
@@ -579,6 +603,7 @@ $('start-btn').addEventListener('click', async () => {
     drawSlots();
     drawScope();
     $('start').hidden = true;
+    panel.boot();
     requestAnimationFrame(draw);
   } catch (err) {
     console.error(err);
@@ -611,6 +636,7 @@ const api = {
   noteOff: (src) => release(src),
   releaseSources: (prefix) => { for (const k of [...held.keys()]) if (k.startsWith(prefix)) release(k); },
   allNotesOff: () => releaseAll(),
+  selectedNote: () => lastNote,
   sustain: (on) => setSustain(on),
   bend: (semitones) => setBend(semitones),
   preview,
@@ -632,6 +658,10 @@ const api = {
   },
   presets: {
     load: (i) => { if (presets[i]) { presetMode = 'none'; presetClick(i); } },
+    loadDefault: () => { applyValues(applySound({ ...values }, soundFrom(defaultValues()))); currentPreset = -1; renderPresets(); },
+    saveTo: (i) => { presets[i] = { name: presets[i] && currentPreset === i ? presets[i].name : `sound ${i + 1}`, sound: soundFrom(values) }; savePresets(presets); currentPreset = i; renderPresets(); },
+    erase: (i) => { presets[i] = null; savePresets(presets); if (currentPreset === i) currentPreset = -1; renderPresets(); },
+    copy: (a, b) => { if (presets[a]) { presets[b] = JSON.parse(JSON.stringify(presets[a])); savePresets(presets); renderPresets(); } },
     filled: (i) => !!presets[i],
     currentIndex: () => currentPreset,
     currentName: () => (currentPreset >= 0 && presets[currentPreset] ? presets[currentPreset].name : ''),
@@ -726,6 +756,32 @@ window.addEventListener('keydown', (e) => { if (e.code === 'Escape' && document.
 
 const MODE_NAMES = { abs: 'knob (absolute)', rel64: 'encoder (64 = still)', rel2c: 'encoder (1 / 127)', button: 'button' };
 const escapeHtml = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+// Live view of incoming MIDI in the panel: which port, which bytes, what kind.
+function describe(d) {
+  const st = d[0] & 0xf0;
+  const ch = (d[0] & 0x0f) + 1;
+  if (d[0] === 0xf0) return `sysex (${d.length} bytes)`;
+  if (st === 0x90) return d[2] ? `note on  ${d[1]} vel ${d[2]} ch${ch}` : `note off ${d[1]} ch${ch}`;
+  if (st === 0x80) return `note off ${d[1]} ch${ch}`;
+  if (st === 0xb0) return `CC ${d[1]} = ${d[2]} ch${ch}`;
+  if (st === 0xe0) return `pitch bend ch${ch}`;
+  if (st === 0xa0) return `aftertouch ${d[1]} ch${ch}`;
+  if (st === 0xd0) return `pressure ch${ch}`;
+  return 'other';
+}
+let monTimer = 0;
+midi.addEventListener('message', () => {
+  if (!$('midi-dlg').open || monTimer) return;
+  monTimer = setTimeout(() => {
+    monTimer = 0;
+    // aftertouch floods the log; leave it out unless it's all there is
+    const rows = midi.monitor.filter((m) => (m.data[0] & 0xf0) !== 0xa0 && (m.data[0] & 0xf0) !== 0xd0);
+    $('midi-mon').textContent = (rows.length ? rows : midi.monitor).slice(-8)
+      .map((m) => `${m.port.padEnd(26).slice(0, 26)}  ${m.data.slice(0, 3).map((b) => b.toString(16).padStart(2, '0')).join(' ').padEnd(9)}  ${describe(m.data)}`)
+      .join('\n') || 'nothing yet';
+  }, 60);
+});
+
 function openMidiDialog() {
   renderMidiDialog();
   $('midi-dlg').showModal();
@@ -755,7 +811,12 @@ $('midi-btn').addEventListener('click', async () => {
     await midi.enable();
     toast(midi.sysex ? 'MIDI connected' : 'MIDI connected (without SysEx: no Push display)');
   } catch (err) {
-    toast(`MIDI not available: ${err.message}`);
+    // Firefox gates Web MIDI behind a per-site "site permission add-on".
+    if (/firefox/i.test(navigator.userAgent) || /add-?on/i.test(err.message)) {
+      toast('Firefox needs a one-time MIDI add-on for this site and didn\'t offer it here. Open Chompfe in Chrome or Edge for MIDI; keys and mouse still work in Firefox.', 9000);
+    } else {
+      toast(`MIDI not available: ${err.message}`, 6000);
+    }
   }
   renderMidiStatus();
 });
@@ -767,3 +828,113 @@ buildControls();
 buildSlots();
 buildPresets();
 buildKeyboard();
+
+
+// ------------------------------------------------------------ your own wavetables
+const importer = new Importer({
+  ctx: () => synth.ctx,
+  getTable: (slot) => synth.tables[slot],
+  preview: (slot, table) => { synth.loadTable(slot, table.slice()); drawSlots(); drawScope(); },
+  commit: async (slot, name, table) => {
+    synth.loadTable(slot, table.slice());
+    synth.custom[slot] = name;
+    updateSlotSelection();
+    drawSlots();
+    drawScope();
+    toast((await tableStore.put(slot, name, table)) ? `"${name}" is in slot ${slot + 1}` : `"${name}" loaded (this browser won't remember it)`);
+  },
+  selectSlot: (slot) => setValue(P.TABLE, slot),
+  currentSlot: () => Math.round(values[P.TABLE]),
+  toast,
+});
+
+async function importFile(file, slot) {
+  if (!synth.ctx) { toast('wake it up first (the button in the middle)'); return; }
+  await importer.open(file, slot ?? Math.round(values[P.TABLE]));
+}
+
+$('table-file').addEventListener('change', (e) => {
+  const f = e.target.files[0];
+  e.target.value = '';
+  if (f) importFile(f);
+});
+
+$('table-save').addEventListener('click', () => {
+  const t = Math.round(values[P.TABLE]);
+  if (!synth.tables[t]) return;
+  const blob = new Blob([encodeSerumWav(synth.tables[t])], { type: 'audio/wav' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `${synth.custom[t] || `chompfe-table-${t + 1}`}.wav`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+});
+
+$('table-reset').addEventListener('click', async () => {
+  const t = Math.round(values[P.TABLE]);
+  await synth.loadFactory(t);
+  await tableStore.remove(t);
+  updateSlotSelection();
+  drawSlots();
+  drawScope();
+  toast(`slot ${t + 1} is the factory table again`);
+});
+
+// Drag and drop: onto a slot targets that slot, anywhere else the current one.
+let dragDepth = 0;
+const hasFiles = (e) => [...(e.dataTransfer?.types || [])].includes('Files');
+window.addEventListener('dragenter', (e) => { if (hasFiles(e)) { dragDepth++; document.body.classList.add('dragging'); } });
+window.addEventListener('dragleave', () => { if (--dragDepth <= 0) { dragDepth = 0; document.body.classList.remove('dragging'); } });
+window.addEventListener('dragover', (e) => {
+  if (!hasFiles(e)) return;
+  e.preventDefault();
+  const slot = e.target.closest && e.target.closest('.slot');
+  document.querySelectorAll('.slot.dropping').forEach((s) => { if (s !== slot) s.classList.remove('dropping'); });
+  if (slot) slot.classList.add('dropping');
+});
+window.addEventListener('drop', (e) => {
+  if (!hasFiles(e)) return;
+  e.preventDefault();
+  dragDepth = 0;
+  document.body.classList.remove('dragging');
+  document.querySelectorAll('.slot.dropping').forEach((s) => s.classList.remove('dropping'));
+  const file = e.dataTransfer.files[0];
+  if (!file) return;
+  const slotEl = e.target.closest && e.target.closest('.slot');
+  importFile(file, slotEl ? [...$('slots').children].indexOf(slotEl) : undefined);
+});
+
+
+// ------------------------------------------------------------ the instrument panel
+const panel = new Panel($('instrument'), api, {
+  table: (slot) => synth.tables[slot],
+  tableName: (slot) => synth.custom[slot] || TABLE_NAMES[slot],
+  hint: (text) => { $('hint').textContent = text; },
+});
+window.chompfeDebug.panel = panel;
+
+// MIDI CC 20-23/25 move the panel knobs on their current page (WAVE manual)
+api.knobAbs = (k, v01) => {
+  const f = panel.fw.KNOBS[k].pages[panel.fw.pages[k]].turn;
+  const p = BY_ID[f.id];
+  setValue(f.id, p.min + v01 * (p.max - p.min));
+};
+
+// Computer Shift = the star key's shift; in shift, the note keys reach the
+// keybed's shift functions (A = first white key = sound slot 1, ...).
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Shift') panel.fw.setKbdShift(true);
+  else if (e.code === 'Escape' && panel.fw.mode !== 'none') panel.fw.cancelMode();
+}, true);
+window.addEventListener('keyup', (e) => { if (e.key === 'Shift') panel.fw.setKbdShift(false); }, true);
+window.addEventListener('blur', () => panel.fw.setKbdShift(false));
+
+$('labels-btn').addEventListener('click', () => {
+  const on = !document.body.classList.contains('labels');
+  document.body.classList.toggle('labels', on);
+  $('labels-btn').setAttribute('aria-pressed', String(on));
+  try { localStorage.setItem('chompfe.labels', on ? '1' : '0'); } catch { /* ignore */ }
+});
+try {
+  if (localStorage.getItem('chompfe.labels') === '0') { document.body.classList.remove('labels'); $('labels-btn').setAttribute('aria-pressed', 'false'); }
+} catch { /* ignore */ }

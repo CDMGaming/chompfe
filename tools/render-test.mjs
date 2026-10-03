@@ -164,5 +164,35 @@ for (let s = 0; s < 7; s++) {
   check(st.seqLength === 0 && !st.seqPlaying, `hold PLAY+LOOP clears (len ${st.seqLength}, playing ${st.seqPlaying})`);
 }
 
+// 5. recording while the loop plays overdubs at the playhead (rounded to the
+//    nearest step) instead of appending; stopped, it still appends.
+{
+  const e = newEngine();
+  [60, -1, -1, -1].forEach((n, i) => e.seqSetStep(i, n));
+  e.seqSetLength(4);
+  e.setParam(P.TEMPO, 320); // 187.5 ms steps; step k starts at ~k*187.5 ms
+  e.seqRecord(true);
+  e.seqPlay(true);
+  render(e, 1.4, [
+    { at: 0.20, fn: (e) => e.noteOn(67, 100) },  // early in step 2 -> step 2
+    { at: 0.30, fn: (e) => e.noteOff(67) },
+    { at: 0.53, fn: (e) => e.noteOn(64, 100) },  // late in step 3 (0.375..0.5625) -> step 4
+    { at: 0.62, fn: (e) => e.noteOff(64) },
+    { at: 0.77, fn: (e) => e.restButton(true) }, // early in step 1 of loop 2 -> rest there
+    { at: 0.80, fn: (e) => e.restButton(false) },
+  ]);
+  const st = e.state();
+  check(st.seqLength === 4, `live overdub keeps the loop length (${st.seqLength})`);
+  check(st.steps.slice(0, 4).join() === '-1,67,-1,64', `live overdub: steps ${st.steps.slice(0, 4).join(',')} (expect -1,67,-1,64)`);
+  e.drainMidiOut();
+  render(e, 0.75);
+  const ons = e.drainMidiOut().filter((m) => (m[0] & 0xf0) === 0x90).map((m) => m[1]);
+  check(ons.includes(67) && ons.includes(64) && !ons.includes(60), `the next loop plays the overdubbed notes (${ons.join(',')})`);
+
+  e.seqPlay(false);
+  render(e, 0.05, [{ at: 0, fn: (e) => { e.noteOn(72, 100); } }, { at: 0.02, fn: (e) => e.noteOff(72) }]);
+  check(e.state().seqLength === 5 && e.state().steps[4] === 72, 'stopped + recording still appends, like the hardware');
+}
+
 console.log(fail ? `\n${fail} check(s) failed` : '\nall checks passed');
 process.exit(fail ? 1 : 0);

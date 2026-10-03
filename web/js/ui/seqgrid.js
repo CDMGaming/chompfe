@@ -2,8 +2,11 @@
 // a rest is an empty step, and the loop length is sequenceLength. Recording
 // with LOOP fills the same steps, so both ways of working stay in sync.
 //
-//   click a step inside the loop  -> toggle note / rest
-//   click a step past the end     -> extend the loop to it and put a note there
+// The "selected note" is the last note you played (keys, mouse, MIDI, pads).
+//   click an empty step / a step with another note -> put the selected note there
+//   click a step that already has the selected note -> make it a rest
+//   click a step past the end     -> extend the loop to it, with the selected note
+//   right-click, or Delete on a focused step -> rest
 //   drag up/down or scroll        -> change that step's note
 //   arrow keys on a focused step  -> up/down note, left/right move focus
 
@@ -25,7 +28,6 @@ export class SeqGrid {
     this.root = root;
     this.o = o;
     this.steps = new Array(SEQ_STEPS).fill(-1);
-    this.memory = new Array(SEQ_STEPS).fill(-1); // note a step had before it was rested
     this.length = 0;
     this.index = 0;
     this.playing = false;
@@ -58,7 +60,6 @@ export class SeqGrid {
   }
 
   edit(i, note) {
-    if (this.steps[i] >= 0) this.memory[i] = this.steps[i];
     this.steps[i] = note;
     this.holdUntil = performance.now() + 150;
     this.o.setStep(i, note);
@@ -74,18 +75,14 @@ export class SeqGrid {
   }
 
   click(i) {
-    if (i < this.length) {
-      this.edit(i, this.steps[i] >= 0 ? -1 : this.pick(i));
+    const sel = this.o.lastNote();
+    if (i >= this.length) this.setLength(i + 1);
+    if (this.steps[i] === sel) {
+      this.edit(i, -1);
     } else {
-      this.setLength(i + 1);
-      this.edit(i, this.pick(i));
+      this.edit(i, sel);
+      if (this.o.preview) this.o.preview(sel);
     }
-  }
-
-  pick(i) {
-    const n = this.memory[i] >= 0 ? this.memory[i] : this.o.lastNote();
-    if (this.o.preview) this.o.preview(n);
-    return n;
   }
 
   transpose(i, d) {
@@ -128,6 +125,12 @@ export class SeqGrid {
       const c = e.target.closest('.step');
       if (c && e.detail === 0) this.click(+c.dataset.i);
     });
+    this.root.addEventListener('contextmenu', (e) => {
+      const c = e.target.closest('.step');
+      if (!c) return;
+      e.preventDefault();
+      if (+c.dataset.i < this.length) this.edit(+c.dataset.i, -1);
+    });
     this.root.addEventListener('wheel', (e) => {
       const c = e.target.closest('.step');
       if (!c || this.steps[+c.dataset.i] < 0) return;
@@ -143,6 +146,7 @@ export class SeqGrid {
       else if (e.key === 'ArrowDown') this.transpose(i, e.shiftKey ? -12 : -1);
       else if (e.key === 'ArrowLeft') go(i - 1);
       else if (e.key === 'ArrowRight') go(i + 1);
+      else if (e.key === 'Delete' || e.key === 'Backspace') { if (i < this.length) this.edit(i, -1); }
       else return;
       e.preventDefault();
       e.stopPropagation();

@@ -2,8 +2,10 @@
 //   notes (any channel), pitch bend (±2 semitones), sustain (CC 64),
 //   mod wheel (CC 1) -> vibrato depth,
 //   and the hardware firmware's own CC map, so anything set up for it works:
-//     CC 20 pitch, 21 attack, 22 release, 23 delay/reverb, 25 level      (knob page 1)
-//     CC 26 frame, 27 vibrato depth, 28 wobble depth, 29 filter, 30 pan  (knob page 2)
+//     CC 20/21/22/23/25 move the Pitch/Attack/Decay/Effects/Volume knobs on
+//     whatever page each is on (as the manual says); CC 26-30 are the page-2
+//     values the hardware sends out: frame, vibrato depth, filter LFO depth,
+//     filter, pan
 //     CC 14 rest/mute key, CC 15 loop key (top third = press, bottom third = release)
 // Anything else can be mapped with MIDI learn, which takes precedence.
 export const id = 'generic';
@@ -19,6 +21,8 @@ export function create({ input, api }) {
     26: P.FRAME, 27: P.PITCH_LFO_DEPTH, 28: P.FILTER_LFO_DEPTH, 29: P.CUTOFF, 30: P.PAN,
   };
   const keyCC = { 14: false, 15: false };
+  // WAVE manual: CC 20/21/22/23/25 move Pitch/Attack/Decay/Effects/Volume on their current page
+  const KNOB_CC = { 20: 0, 21: 1, 22: 2, 23: 3, 25: 5 };
 
   return {
     onMessage(d) {
@@ -32,7 +36,9 @@ export function create({ input, api }) {
         if (cc === 64) api.sustain(v >= 64);
         else if (cc === 1) api.set(P.PITCH_LFO_DEPTH, v / 127);
         else if (cc === 123 || cc === 120) api.allNotesOff();
-        else if (cc in FIRMWARE_CC) {
+        else if (KNOB_CC[cc] !== undefined && api.knobAbs) {
+          api.knobAbs(KNOB_CC[cc], v / 127); // the panel knob, on whatever page it's on
+        } else if (cc in FIRMWARE_CC) {
           const p = api.BY_ID[FIRMWARE_CC[cc]];
           api.set(p.id, p.min + (v / 127) * (p.max - p.min)); // MidiManager: value / 127
         } else if (cc === 14 || cc === 15) {

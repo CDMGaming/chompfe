@@ -3,6 +3,9 @@
 import { wavToTable } from './wavetable.js';
 import { P, PARAM_COUNT } from './engine.js';
 
+// Names from the WAVE quick start guide
+export const TABLE_NAMES = ['Classic Console', 'Harmonic Bloom', 'FM Bells & Metal', 'Wavefolder', 'Vowels', 'Degradation', 'Sample Platter'];
+
 export const FACTORY_TABLES = [1, 2, 3, 4, 5, 6, 7].map((i) => `wavetables/wavetable0${i}.wav`);
 
 // The firmware's digital output is quiet: each voice is scaled by .2 and the
@@ -20,6 +23,7 @@ export class Synth extends EventTarget {
     this.params = new Float32Array(PARAM_COUNT);
     this.tableNames = FACTORY_TABLES.map((u) => u.split('/').pop());
     this.tables = new Array(7).fill(null); // main-thread copies, for drawing
+    this.custom = new Array(7).fill(null); // name of a user table in a slot, else null
   }
 
   async start() {
@@ -72,6 +76,12 @@ export class Synth extends EventTarget {
     await ready;
     await Promise.all(FACTORY_TABLES.map((url, slot) => this.loadTableFromUrl(slot, url)));
     if (ctx.state !== 'running') await ctx.resume();
+  }
+
+  /** Put the factory table back in a slot. */
+  async loadFactory(slot) {
+    await this.loadTableFromUrl(slot, FACTORY_TABLES[slot]);
+    this.custom[slot] = null;
   }
 
   async loadTableFromUrl(slot, url) {

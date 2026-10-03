@@ -22,7 +22,7 @@ const api = {
   getOutDb: () => 18, setOutDb: () => {},
   noteOn: (src, n, v) => notes.push(['on', src, n, v]),
   noteOff: (src) => notes.push(['off', src]),
-  releaseSources: () => {}, allNotesOff: () => {}, preview: () => {},
+  releaseSources: () => {}, allNotesOff: () => {}, preview: () => {}, selectedNote: () => 60,
   play: (d) => transport.push(['play', d]), loop: (d) => transport.push(['loop', d]), rest: (d) => transport.push(['rest', d]),
   tap: () => transport.push(['tap']),
   state: () => state,
@@ -51,14 +51,15 @@ await wait(40);
 
 // port names
 check(push1.match('Ableton Push') && push1.match('Ableton Push Live Port'), 'matches Push 1 Live port names');
-check(push1.ignore('MIDIIN2 (Ableton Push)') && push1.ignore('Ableton Push User Port') && !push1.match('Ableton Push User Port'), 'leaves the User port alone');
-check(!push1.match('Ableton Push 2') && !push1.ignore('Ableton Push 2'), 'does not claim Push 2');
+check(push1.sibling('MIDIIN2 (Ableton Push)') && push1.sibling('Ableton Push User Port') && !push1.match('Ableton Push User Port'), 'treats the User port as a second input of the same Push');
+check(!push1.match('Ableton Push 2') && !push1.sibling('Ableton Push 2'), 'does not claim Push 2');
+check(sent[0].join() === '240,71,127,21,98,0,1,0,247', 'first message switches the Push to Live mode (F0 47 7F 15 62 00 01 00 F7)');
 
 // LCD
-const writes = sent.filter((m) => m[0] === 0xf0 && m.length > 8);
+const writes = sent.filter((m) => m[0] === 0xf0 && m[4] >= 0x18 && m[4] <= 0x1b);
 check(writes.length === 4 && writes.every((m) => m.length === 77 && m[5] === 0 && m[6] === 0x45 && m[7] === 0 && m[76] === 0xf7),
   'LCD: 4 line writes of F0 47 7F 15 18+n 00 45 00 + 68 chars + F7');
-check(sent.filter((m) => m[0] === 0xf0 && m.length === 8).map((m) => m[4]).join() === '28,29,30,31', 'LCD: clears lines 1C..1F on connect');
+check(sent.filter((m) => m[0] === 0xf0 && m.length === 8 && m[4] >= 0x1c).map((m) => m[4]).join() === '28,29,30,31', 'LCD: clears lines 1C..1F on connect');
 check(lcd(0).startsWith(' TABLE    FRAME '), `LCD line 1: "${lcd(0)}"`);
 
 // encoders: relative two's complement

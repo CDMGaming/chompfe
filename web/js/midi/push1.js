@@ -23,14 +23,19 @@ import { CLOCK_DIVS } from '../params.js';
 export const id = 'push1';
 export const label = 'Push 1';
 
-// "Ableton Push" (Windows), "Ableton Push Live Port" (macOS). The second port
-// ("User Port" / "MIDIIN2 (Ableton Push)") is left alone, and Push 2 isn't this.
+// "Ableton Push" (Windows), "Ableton Push Live Port" (macOS). Push 2 isn't this.
+// The second port ("User Port" / "MIDIIN2 (Ableton Push)") is also listened
+// to: outside Live mode the Push sends its pads and encoders there.
 const isPush1 = (n) => /ableton push/i.test(n) && !/push\s*2/i.test(n);
 const isUserPort = (n) => /user port|midiin2|midiout2|push midi 2/i.test(n); // Windows / macOS / Linux names
 export function match(name) { return isPush1(name) && !isUserPort(name); }
-export function ignore(name) { return isPush1(name) && isUserPort(name); }
+export function sibling(name) { return isPush1(name) && isUserPort(name); }
 
 const SYSEX = [0xf0, 0x47, 0x7f, 0x15];
+const NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+// Mode switch, pushbase/sysex.py: MODE_CHANGE = START + (98, 0, 1), then LIVE_MODE 0 / USER_MODE 1.
+// Live sends this on connect; without it the Push may sit in User mode.
+const LIVE_MODE_MSG = [...SYSEX, 0x62, 0x00, 0x01, 0x00, 0xf7];
 const LCD_WIDTH = 68;
 // 8 encoder columns over 68 characters: 8,9,8,9,... wide (each 17-char block
 // of the LCD sits over two encoders)
@@ -342,7 +347,9 @@ export function create({ output, api, sysex }) {
     const pageNames = PAGES.map((p, i) => (i === page ? `>${p.name}` : p.name));
     const loop = `${st.seqRecording ? 'REC ' : ''}${st.seqPlaying ? '>' : ''}${st.seqLength ? `${st.seqPlaying ? st.seqIndex + 1 : '-'}/${st.seqLength}` : 'no loop'}`;
     const preset = api.presets.currentName();
-    lcdLine(3, columns([...pageNames, '<snd', 'snd>', preset || (mode === 'note' ? 'NOTE' : 'SEQ'), loop]));
+    const sel = api.selectedNote();
+    const third = mode === 'session' ? `note ${NAMES[sel % 12]}${Math.floor(sel / 12) - 1}` : preset || 'NOTE';
+    lcdLine(3, columns([...pageNames, '<snd', 'snd>', third, loop]));
   }
 
   // ---------------------------------------------------------- output: LEDs
@@ -376,6 +383,7 @@ export function create({ output, api, sysex }) {
         if (n !== null) {
           const pressed = [...padsDown.values()].some((d) => d.kind === 'key' && d.note === n);
           if (pressed || sounding.has(n)) c = RGB.green;
+          else if (mode === 'session' && n === api.selectedNote()) c = RGB.sky; // what a step tap will place
           else if (((n - root) % 12 + 12) % 12 === 0) c = RGB.blue;
           else if (inScale(n, root, sc)) c = mode === 'note' ? RGB.white : RGB.grey;
           else c = RGB.off;
@@ -432,6 +440,7 @@ export function create({ output, api, sysex }) {
   const offState = api.on('state', scheduleRender);
   const offPresets = api.on('presets', scheduleRender);
 
+  if (sysex) send(LIVE_MODE_MSG);
   lcdClear();
   scheduleRender();
 

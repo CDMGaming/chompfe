@@ -78,6 +78,14 @@ float params[P_COUNT];
 bool flash_cleared_step = false; // a hold gesture just deleted/cleared (UI blink)
 int clock_div_pos = 2; // mirrors clockManager::newDivPos (private there)
 
+// When the current sequencer step started (ms, System::GetNow()), tracked
+// here because clockManager keeps it private. Used to round live-recorded
+// notes to the nearest step.
+uint32_t step_start_ms = 0;
+int last_step_idx = -1;
+bool last_first_run = true;
+uint32_t live_recorded_hi[4] = {0, 0, 0, 0}; // notes placed live, so their release doesn't append them too
+
 void applyParam(int id, float v)
 {
     switch (id)
@@ -217,7 +225,18 @@ CF_EXPORT void cf_process(int frames)
 
         // same order as AudioCallback() in chompi_main.cpp
         if (seq.getPlaying())
+        {
             seq.checkAndPop();
+            if (seq.currentIdx != last_step_idx || (last_first_run && !seq.isFirstRun))
+                step_start_ms = daisy::System::GetNow();
+            last_step_idx = seq.currentIdx;
+            last_first_run = seq.isFirstRun;
+        }
+        else
+        {
+            last_step_idx = -1;
+            last_first_run = true;
+        }
         engine.Prepare();
         engine.Process(in, o, n);
 
@@ -230,6 +249,33 @@ CF_EXPORT void cf_process(int frames)
 // held key on the same note share a voice, as on the hardware). Pitch follows
 // the firmware's MIDI-in path: nn = note - 60.
 
+CF_EXPORT void cf_seq_set_step(int i, int note);
+
+namespace
+{
+bool liveRecording() { return seq.getPlaying() && seq.getRecording() && seq.sequenceLength > 0; }
+
+/** Step a live note belongs to: the current one, or the next if we're past
+ *  half of the current step (nearest-step rounding). */
+int liveTargetStep()
+{
+    const float interval = (60000.f / static_cast<float>(cManager.getTempo()))
+                           * (static_cast<float>(freeDivs[clock_div_pos].clock_division) / 12.f);
+    const uint32_t elapsed = daisy::System::GetNow() - step_start_ms;
+    int idx = seq.currentIdx;
+    if (!seq.isFirstRun && elapsed > interval * 0.5f)
+        idx = (idx + 1) % seq.sequenceLength;
+    return idx;
+}
+
+bool liveBit(int note) { return live_recorded_hi[note >> 5] & (1u << (note & 31)); }
+void setLiveBit(int note, bool on)
+{
+    if (on) live_recorded_hi[note >> 5] |= 1u << (note & 31);
+    else live_recorded_hi[note >> 5] &= ~(1u << (note & 31));
+}
+} // namespace
+
 CF_EXPORT void cf_note_on(int note, int velocity)
 {
     if (note < 0 || note > 127)
@@ -237,6 +283,14 @@ CF_EXPORT void cf_note_on(int note, int velocity)
     // MidiManager passes data[1] + 1
     engine.request_fifo.PushBack(KeyRequest(KeyRequest::Type::START, static_cast<float>(note - 60), note,
                                             static_cast<float>(velocity + 1)));
+    // Chompfe addition: recording while the loop PLAYS overdubs - the note
+    // replaces the step under the playhead (rounded to the nearest step).
+    // The firmware only appended; that still happens when the loop is stopped.
+    if (liveRecording())
+    {
+        cf_seq_set_step(liveTargetStep(), note);
+        setLiveBit(note, true);
+    }
 }
 
 CF_EXPORT void cf_note_off(int note)
@@ -246,8 +300,11 @@ CF_EXPORT void cf_note_off(int note)
     engine.request_fifo.PushBack(KeyRequest(KeyRequest::Type::STOP, static_cast<float>(note - 60), note, 127.f));
     // NormalPage records a step when a key is RELEASED while LOOP is armed.
     // (On the hardware only the front-panel keys record; here every user note
-    // source does, so a MIDI keyboard can record too.)
-    if (seq.getRecording())
+    // source does, so a MIDI keyboard can record too.) A note already placed
+    // live by cf_note_on isn't appended again.
+    if (liveBit(note))
+        setLiveBit(note, false);
+    else if (seq.getRecording())
         seq.insertNextKey(KeyRequest(KeyRequest::Type::STOP, static_cast<float>(note - 60), note, 127.f));
 }
 
@@ -370,7 +427,9 @@ CF_EXPORT void cf_rest_button(int down)
 {
     if (down)
     {
-        if (seq.getRecording())
+        if (liveRecording())
+            cf_seq_set_step(liveTargetStep(), -1); // overdub a rest at the playhead
+        else if (seq.getRecording())
             seq.insertRest();
         else
             seq.setMuted(true);

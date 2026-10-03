@@ -27,6 +27,7 @@ export function fakeApi() {
     noteOff: (src) => log.notes.push(['off', src]),
     releaseSources: (prefix) => log.notes.push(['releaseSources', prefix]),
     allNotesOff: () => log.notes.push(['allOff']),
+    selectedNote: () => 60,
     sustain: (on) => log.sustain.push(on),
     bend: (st) => log.bends.push(st),
     preview: () => {},

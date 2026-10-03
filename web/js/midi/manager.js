@@ -4,7 +4,8 @@
 // A profile module exports:
 //   id, label
 //   match(portName) -> true if this profile drives that port
-//   ignore(portName) -> optional; true for sibling ports to leave alone
+//   sibling(portName) -> optional; true for a device's second port, whose
+//                        messages go to the same profile instance
 //   create({ input, output, api, sysex }) -> { onMessage(data), destroy() }
 import * as push1 from './push1.js';
 import * as minilab2 from './minilab2.js';
@@ -21,6 +22,7 @@ export class MidiManager extends EventTarget {
     this.sysex = false;
     this.bound = new Map(); // input id -> { input, output, profile, instance }
     this.learn = new MidiLearn(api);
+    this.monitor = []; // last incoming messages, for the MIDI panel
   }
 
   static supported() {
@@ -53,31 +55,52 @@ export class MidiManager extends EventTarget {
   }
 
   scan() {
-    const inputs = [...this.access.inputs.values()];
+    const inputs = [...this.access.inputs.values()].filter((i) => i.state === 'connected');
     const outputs = [...this.access.outputs.values()];
-    const live = new Set();
+    const live = new Set(inputs.map((i) => i.id));
+    const siblingOf = (name) => PROFILES.find((p) => p.sibling && p.sibling(name));
+
+    // main ports first, so a device's second port can join its profile below
     for (const input of inputs) {
-      if (input.state !== 'connected') continue;
-      live.add(input.id);
-      if (this.bound.has(input.id)) continue;
       const name = input.name || '';
-      if (PROFILES.some((p) => p.ignore && p.ignore(name))) continue;
+      if (this.bound.has(input.id) || siblingOf(name)) continue;
       const profile = PROFILES.find((p) => p.match(name)) || generic;
       const output = profile === generic ? null
         : outputs.find((o) => o.state === 'connected' && profile.match(o.name || '')) || null;
       const instance = profile.create({ input, output, api: this.api, sysex: this.sysex });
-      // learned mappings first, so MIDI learn can override a profile
-      input.onmidimessage = (e) => { if (!this.learn.handle(name, e.data)) instance.onMessage(e.data); };
-      this.bound.set(input.id, { input, output, profile, instance });
+      input.onmidimessage = (e) => this.route(name, instance, e.data);
+      this.bound.set(input.id, { input, output, profile, instance, siblings: [] });
     }
+    // A device's second port (e.g. the Push "User" port): feed it to the same
+    // profile instance, because the device may send its controls there.
+    for (const input of inputs) {
+      const name = input.name || '';
+      const profile = siblingOf(name);
+      if (!profile) continue;
+      const owner = [...this.bound.values()].find((b) => b.profile === profile);
+      if (!owner || owner.siblings.includes(input)) continue;
+      input.onmidimessage = (e) => this.route(name, owner.instance, e.data);
+      owner.siblings.push(input);
+    }
+
     for (const [id, b] of this.bound) {
+      b.siblings = b.siblings.filter((s) => live.has(s.id) || ((s.onmidimessage = null), false));
       if (!live.has(id)) {
         b.instance.destroy(false);
         b.input.onmidimessage = null;
+        for (const s of b.siblings) s.onmidimessage = null;
         this.bound.delete(id);
       }
     }
     this.dispatchEvent(new Event('change'));
+  }
+
+  route(port, instance, data) {
+    this.monitor.push({ port, data: Array.from(data), t: performance.now() });
+    if (this.monitor.length > 40) this.monitor.shift();
+    this.dispatchEvent(new Event('message'));
+    // learned mappings first, so MIDI learn can override a profile
+    if (!this.learn.handle(port, data)) instance.onMessage(data);
   }
 
   disconnectAll() {
@@ -86,6 +109,9 @@ export class MidiManager extends EventTarget {
 
   /** For the status line: [{ name, label }] */
   devices() {
-    return [...this.bound.values()].map((b) => ({ name: b.input.name, label: b.profile.label }));
+    return [...this.bound.values()].map((b) => ({
+      name: [b.input.name, ...b.siblings.map((s) => s.name)].join(' + '),
+      label: b.profile.label,
+    }));
   }
 }
