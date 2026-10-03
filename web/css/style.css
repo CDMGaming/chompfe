@@ -492,3 +492,29 @@ input[type="range"]:focus-visible { outline: 2px solid var(--sky); outline-offse
   .tbtn.flash, .tbtn.rainbow { animation: none; }
   .toast { transition: none; }
 }
+
+/* ---------- MIDI dialog + learn */
+.devs { list-style: none; padding: 0; margin: 0 0 8px; display: grid; gap: 4px; }
+.dim { color: var(--ink-dim); font-size: 13px; }
+dialog h3 { font-size: 14px; margin: 14px 0 4px; }
+.maps-wrap { max-height: 40vh; overflow: auto; }
+.maps { width: 100%; border-collapse: collapse; font-size: 13px; }
+.maps td { padding: 6px 4px; border-top: 1px solid var(--line); vertical-align: middle; }
+.maps select { background: var(--panel-2); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 3px; font: 12px var(--display); }
+.learn-banner {
+  position: fixed; left: 50%; top: 10px; transform: translateX(-50%);
+  z-index: 30; display: flex; gap: 12px; align-items: center;
+  background: var(--sky); color: var(--bg); font-weight: 600;
+  padding: 8px 10px 8px 16px; border-radius: 999px;
+  max-width: calc(100vw - 32px); box-shadow: 0 6px 30px rgba(0, 0, 0, 0.4);
+}
+.learn-banner[hidden] { display: none; }
+.learning [data-learn] { outline: 2px dashed rgba(124, 199, 255, 0.55); outline-offset: 2px; cursor: crosshair; }
+.learning [data-learn].armed { outline: 3px solid var(--lime); animation: armed 0.8s ease-in-out infinite alternate; }
+@keyframes armed { to { outline-color: rgba(198, 242, 94, 0.3); } }
+[data-learn].mapped { position: relative; }
+[data-learn].mapped::before {
+  content: ''; position: absolute; top: 3px; right: 3px; width: 7px; height: 7px;
+  border-radius: 50%; background: var(--sky); pointer-events: none;
+}
+@media (prefers-reduced-motion: reduce) { .learning [data-learn].armed { animation: none; } }

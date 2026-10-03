@@ -7,9 +7,11 @@
 //   ignore(portName) -> optional; true for sibling ports to leave alone
 //   create({ input, output, api, sysex }) -> { onMessage(data), destroy() }
 import * as push1 from './push1.js';
+import * as minilab2 from './minilab2.js';
 import * as generic from './generic.js';
+import { MidiLearn } from './learn.js';
 
-const PROFILES = [push1]; // generic is the fallback, not listed
+const PROFILES = [push1, minilab2]; // generic is the fallback, not listed
 
 export class MidiManager extends EventTarget {
   constructor(api) {
@@ -18,6 +20,7 @@ export class MidiManager extends EventTarget {
     this.access = null;
     this.sysex = false;
     this.bound = new Map(); // input id -> { input, output, profile, instance }
+    this.learn = new MidiLearn(api);
   }
 
   static supported() {
@@ -63,7 +66,8 @@ export class MidiManager extends EventTarget {
       const output = profile === generic ? null
         : outputs.find((o) => o.state === 'connected' && profile.match(o.name || '')) || null;
       const instance = profile.create({ input, output, api: this.api, sysex: this.sysex });
-      input.onmidimessage = (e) => instance.onMessage(e.data);
+      // learned mappings first, so MIDI learn can override a profile
+      input.onmidimessage = (e) => { if (!this.learn.handle(name, e.data)) instance.onMessage(e.data); };
       this.bound.set(input.id, { input, output, profile, instance });
     }
     for (const [id, b] of this.bound) {

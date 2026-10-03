@@ -69,14 +69,14 @@
       <div class="seq-head">
         <h2 id="h-seq">loop</h2>
         <div class="transport">
-          <button class="tbtn play" id="btn-play" type="button" aria-pressed="false" title="Play / stop (Space)"><span class="ico"></span>play</button>
-          <button class="tbtn rec" id="btn-loop" type="button" aria-pressed="false" title="Arm recording (Enter). Hold to delete the last step. Hold with play to clear."><span class="ico"></span>loop</button>
-          <button class="tbtn rest" id="btn-rest" type="button" title="While recording: add a rest. Otherwise: hold to mute (Q)">rest / mute</button>
-          <button class="btn small" id="btn-clear" type="button">clear</button>
+          <button class="tbtn play" id="btn-play" data-learn="action:play" type="button" aria-pressed="false" title="Play / stop (Space)"><span class="ico"></span>play</button>
+          <button class="tbtn rec" id="btn-loop" data-learn="action:loop" type="button" aria-pressed="false" title="Arm recording (Enter). Hold to delete the last step. Hold with play to clear."><span class="ico"></span>loop</button>
+          <button class="tbtn rest" id="btn-rest" data-learn="action:rest" type="button" title="While recording: add a rest. Otherwise: hold to mute (Q)">rest / mute</button>
+          <button class="btn small" id="btn-clear" data-learn="action:clear" type="button">clear</button>
         </div>
         <div class="seq-opts">
           <div class="knobs compact" id="k-seq"></div>
-          <button class="btn small" id="btn-tap" type="button" title="Tap twice or more">tap</button>
+          <button class="btn small" id="btn-tap" data-learn="action:tap" type="button" title="Tap twice or more">tap</button>
           <div class="seg" id="div" role="radiogroup" aria-label="Step length"></div>
           <div class="seg" id="gate" role="radiogroup" aria-label="Gate length"></div>
           <div class="len">
@@ -149,6 +149,25 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.</pre>
     <form method="dialog"><button class="btn">close</button></form>
   </dialog>
+
+  <dialog id="midi-dlg" aria-labelledby="midi-h">
+    <h2 id="midi-h">MIDI</h2>
+    <ul class="devs" id="midi-devs"></ul>
+    <p class="dim" id="midi-sysex" hidden>SysEx wasn't allowed, so the Push display and MiniLab pad colours are off. Reload and allow it to get them back.</p>
+    <h3>Learned mappings</h3>
+    <p class="dim">These sit on top of the built-in Push / MiniLab layouts and work with any device. Saved in this browser.</p>
+    <div class="maps-wrap"><table class="maps"><tbody id="midi-maps"></tbody></table></div>
+    <div class="row">
+      <button class="btn accent" id="midi-learn" type="button">learn a control...</button>
+      <button class="btn" id="midi-clear" type="button">remove all</button>
+      <form method="dialog"><button class="btn">close</button></form>
+    </div>
+  </dialog>
+
+  <div class="learn-banner" id="learn-banner" role="status" hidden>
+    <span id="learn-msg"></span>
+    <button class="btn small" id="learn-done" type="button">done</button>
+  </div>
 
   <div class="start" id="start">
     <div class="start-inner">

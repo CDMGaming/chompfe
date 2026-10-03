@@ -19,8 +19,8 @@ support are new.
 | 1 | Engine → WASM, factory tables, computer-keyboard play | done |
 | 2 | Full on-screen controls, loop recorder + step grid, presets, URL sharing | done |
 | 3 | Ableton Push 1 profile, MIDI input | done (untested on hardware) |
-| 4 | Arturia MiniLab mkII profile, generic MIDI learn | next |
-| 5 | Custom wavetable import + guide | |
+| 4 | Arturia MiniLab mkII profile, generic MIDI learn | done (untested on hardware) |
+| 5 | Custom wavetable import + guide | next |
 
 ## Run it locally
 
@@ -56,8 +56,7 @@ Browsers only allow AudioWorklets on `https://` or `localhost`, so opening
 | **rest / mute** | `Q` | While recording: add a rest. Otherwise: hold to mute the loop |
 
 While recording, each key you **let go of** becomes the next step (that's how
-the firmware does it), up to 32 steps. Once MIDI input lands (Phase 3),
-MIDI keyboards will record too.
+the firmware does it), up to 32 steps. MIDI keyboards and pads record too.
 
 The same 32 steps are shown as a grid. Click a step to switch it between note
 and rest, click past the end to extend the loop, drag a step up/down (or
@@ -79,8 +78,59 @@ length and gate (10 / 50 / 100 %, the hardware's three choices) are next to it.
 
 Click **connect MIDI** (Chrome or Edge; Safari has no Web MIDI, Firefox asks
 for a permission add-on). Allow SysEx when asked; the Push display needs it.
-Devices are recognised by port name. Anything without a profile plays notes
-(and records into the loop).
+Devices are recognised by port name. Once connected, the MIDI button opens a
+panel listing your devices and learned mappings.
+
+### Any MIDI device
+
+Anything without a built-in profile plays notes (any channel, recorded into
+the loop), with pitch bend (±2 semitones on top of the Pitch knob), sustain
+(CC 64) and the mod wheel on vibrato depth. It also understands the hardware
+firmware's own CC map, so a DAW or controller set up for the original works:
+
+| CC | | CC | |
+|---|---|---|---|
+| 20 | Pitch | 26 | Frame |
+| 21 | Attack | 27 | Vibrato depth |
+| 22 | Release | 28 | Wobble depth |
+| 23 | Delay / Reverb | 29 | Filter |
+| 25 | Level | 30 | Pan |
+| 14 | Rest / mute key | 15 | Loop key |
+
+### MIDI learn
+
+MIDI → **learn a control…**, click anything on screen (a knob, an on/off
+switch, the octave/step/gate buttons, a wavetable or sound slot, play / loop /
+rest / tap / clear), then move a knob or press a button on any controller.
+Chompfe works out whether it's an absolute knob, a relative encoder or a
+button; you can change that in the MIDI panel. Mappings are per device, saved
+in this browser, and take priority over the built-in layouts. Controls with a
+mapping get a small blue dot. **Esc** or **done** ends learn mode.
+
+### Arturia MiniLab mkII
+
+Works with the factory preset (memory 1, "Analog Lab"); the CC/note numbers
+were cross-checked against Ardour's MiniLab mkII map and two other drivers.
+
+| Knob | | Knob | |
+|---|---|---|---|
+| 1 (endless) | Frame scan; click = first frame | 9 (endless) | Wavetable; click = cycle octave |
+| 2 | Pitch | 10 | Wobble amount |
+| 3 | Attack | 11 | Wobble rate |
+| 4 | Release | 12 | Vibrato amount |
+| 5 | Filter | 13 | Vibrato rate |
+| 6 | Resonance | 14 | Delay time / size |
+| 7 | Delay / Reverb | 15 | Squash |
+| 8 | Level | 16 | Tempo |
+
+- **Pads 1–7** pick wavetables 1–7 (current one white), **pad 8** plays/stops
+  the loop (green = playing, yellow = loop ready).
+- **Pads 9–16** (pad bank 2) load sound slots 1–8 (white = current, magenta =
+  saved, dark = empty).
+- Keys, pitch/mod strips and sustain work as above.
+- The MiniLab's knobs are absolute, so the first turn after loading a sound
+  jumps the value to where the knob is (same as the hardware's MIDI input).
+
 
 ### Ableton Push (1st generation)
 
@@ -140,7 +190,8 @@ change the C++.
 2. `bash engine/build.sh` (looks for `em++` on PATH, else `$EMSDK` or `~/emsdk`).
 3. `node tools/render-test.mjs` renders test notes offline into `test-out/*.wav`
    and checks pitch, release, reverb tail and sequencer timing.
-   `node tools/push1-test.mjs` checks the Push 1 profile.
+   `node tools/push1-test.mjs` and `node tools/controllers-test.mjs` check
+   the Push, MiniLab, generic and MIDI-learn code against fake devices.
 
 To re-vendor from upstream: clone the CHOMPI repo into `upstream/` and run
 `bash engine/vendor.sh`. It records the commit in `engine/vendor/UPSTREAM.txt`.
@@ -169,7 +220,9 @@ web/
   js/app.js          UI wiring, keyboards, transport, controller API
   js/midi/manager.js Web MIDI, device detection by port name
   js/midi/push1.js   Push 1 profile
-  js/midi/generic.js notes-only fallback
+  js/midi/minilab2.js MiniLab mkII profile
+  js/midi/generic.js notes, bend, sustain, firmware CC map
+  js/midi/learn.js   MIDI learn
   js/scales.js       scales + pad layouts
   wavetables/        the 7 factory tables (Serum format)
 tools/render-test.mjs  offline render + checks
@@ -192,8 +245,8 @@ tools/render-test.mjs  offline render + checks
   analog output stage. Chompfe adds an output gain (default +18 dB, the "out"
   slider) and a limiter after the engine.
 - **Loop recording from every note source.** On the hardware only the front
-  panel keys record; here every note source will (keyboard, mouse, and MIDI
-  once it's added).
+  panel keys record; here every note source does (computer keyboard, mouse,
+  MIDI keys and pads).
 - **Step grid.** The firmware has no grid, but its sequence is already 32
   steps of note-or-rest plus a length, so the grid edits that same data.
 - **Pitch.** The engine plays an octave below concert pitch for a given MIDI

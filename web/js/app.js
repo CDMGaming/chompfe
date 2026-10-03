@@ -6,6 +6,7 @@ import { FRAME_SIZE, FRAMES } from './wavetable.js';
 import { Knob } from './ui/knob.js';
 import { SeqGrid, noteName } from './ui/seqgrid.js';
 import { MidiManager } from './midi/manager.js';
+import { sourceLabel } from './midi/learn.js';
 import {
   defaultValues, encodeLink, decodeLink, linkFromLocation, linkUrl,
   loadPresets, savePresets, soundFrom, applySound, loadSession, saveSession, NUM_SLOTS, SEQ_STEPS,
@@ -57,7 +58,8 @@ function setValue(id, v, opts = {}) {
   v = Math.min(p.max, Math.max(p.min, v));
   if (p.step) v = Math.round(v / p.step) * p.step;
   values[id] = v;
-  synth.setParam(id, v);
+  if (id === P.PITCH && bendSt) sendPitch();
+  else synth.setParam(id, v);
   if (knobs[id] && !opts.fromKnob) knobs[id].set(v, false);
   if (segs[id]) segs[id](v);
   if (checks[id]) checks[id].checked = v > 0.5;
@@ -87,6 +89,7 @@ function addKnob(containerId, id, hue) {
     onChange: (v) => setValue(id, v, { fromKnob: true }),
   });
   knobs[id] = k;
+  k.el.dataset.learn = `param:${id}`;
   $(containerId).append(k.el);
   return k;
 }
@@ -102,6 +105,7 @@ function addSeg(containerId, id, options) {
     root.append(b);
     return [b, v];
   });
+  root.dataset.learn = `param:${id}`;
   segs[id] = (cur) => btns.forEach(([b, v]) => b.setAttribute('aria-checked', String(Math.abs(cur - v) < 1e-6)));
   segs[id](values[id]);
 }
@@ -114,6 +118,7 @@ function addCheck(containerId, id, label) {
   input.checked = values[id] > 0.5;
   input.addEventListener('change', () => setValue(id, input.checked ? 1 : 0));
   checks[id] = input;
+  l.dataset.learn = `param:${id}`;
   const row = document.createElement('div');
   row.className = 'row';
   row.append(l);
@@ -167,6 +172,7 @@ function buildSlots() {
     b.type = 'button';
     b.setAttribute('role', 'radio');
     b.setAttribute('aria-label', `Wavetable ${i + 1}`);
+    b.dataset.learn = `table:${i}`;
     b.innerHTML = `<canvas width="120" height="36"></canvas><span>${i + 1}</span>`;
     b.addEventListener('click', () => setValue(P.TABLE, i));
     root.append(b);
@@ -303,6 +309,7 @@ function buildPresets() {
     const b = document.createElement('button');
     b.type = 'button';
     b.className = 'pslot';
+    b.dataset.learn = `preset:${i}`;
     b.textContent = i + 1;
     b.addEventListener('click', () => presetClick(i));
     root.append(b);
@@ -397,9 +404,14 @@ const HIGH = 72;
 const held = new Map(); // source id -> note
 const down = new Set();
 
+// Sustain pedal: released notes keep sounding until the pedal comes up.
+let sustain = false;
+const sustained = new Set();
+
 function press(src, note, vel = 100) {
   if (held.has(src)) release(src);
   held.set(src, note);
+  sustained.delete(note);
   down.add(note);
   lastNote = note;
   synth.noteOn(note, vel);
@@ -411,13 +423,33 @@ function release(src) {
   held.delete(src);
   if (![...held.values()].includes(note)) {
     down.delete(note);
-    synth.noteOff(note);
+    if (sustain) sustained.add(note);
+    else synth.noteOff(note);
   }
   markKey(note);
 }
+function setSustain(on) {
+  sustain = on;
+  if (on) return;
+  for (const note of sustained) if (![...held.values()].includes(note)) synth.noteOff(note);
+  sustained.clear();
+}
 function releaseAll() {
+  sustain = false;
+  sustained.clear();
   for (const src of [...held.keys()]) release(src);
   synth.allNotesOff();
+}
+
+// Pitch bend rides on top of the Pitch knob (the engine has no bend input):
+// the engine gets knob + bend, the patch keeps the knob value.
+let bendSt = 0;
+function sendPitch() {
+  synth.setParam(P.PITCH, Math.min(1, Math.max(0, values[P.PITCH] + bendSt / 24)));
+}
+function setBend(semitones) {
+  bendSt = semitones;
+  sendPitch();
 }
 
 const keyEls = new Map();
@@ -579,6 +611,8 @@ const api = {
   noteOff: (src) => release(src),
   releaseSources: (prefix) => { for (const k of [...held.keys()]) if (k.startsWith(prefix)) release(k); },
   allNotesOff: () => releaseAll(),
+  sustain: (on) => setSustain(on),
+  bend: (semitones) => setBend(semitones),
   preview,
   play: (down) => playBtn(down),
   loop: (down) => loopBtn(down),
@@ -594,8 +628,12 @@ const api = {
       grid.edit(i, n);
     },
     setLength: (n) => grid.setLength(n),
+    clear: () => $('btn-clear').click(),
   },
   presets: {
+    load: (i) => { if (presets[i]) { presetMode = 'none'; presetClick(i); } },
+    filled: (i) => !!presets[i],
+    currentIndex: () => currentPreset,
     currentName: () => (currentPreset >= 0 && presets[currentPreset] ? presets[currentPreset].name : ''),
     step: (dir) => {
       // next/previous filled slot
@@ -631,9 +669,88 @@ function renderMidiStatus() {
       + (midi.sysex ? '' : '\n(SysEx not allowed: no Push display)');
   }
 }
-midi.addEventListener('change', renderMidiStatus);
+midi.addEventListener('change', () => { renderMidiStatus(); if ($('midi-dlg').open) renderMidiDialog(); });
+
+// ---- MIDI learn
+const learn = midi.learn;
+function parseTarget(str) {
+  const [kind, v] = str.split(':');
+  if (kind === 'param') return { kind, id: +v };
+  if (kind === 'table' || kind === 'preset') return { kind, i: +v };
+  return { kind: 'action', name: v };
+}
+function targetLabel(t) {
+  if (t.kind === 'param') return BY_ID[t.id].name;
+  if (t.kind === 'table') return `Wavetable ${t.i + 1}`;
+  if (t.kind === 'preset') return `Sound slot ${t.i + 1}`;
+  return { play: 'Play', loop: 'Loop (record)', rest: 'Rest / mute', tap: 'Tap tempo', clear: 'Clear loop', next: 'Next sound', prev: 'Previous sound' }[t.name] || t.name;
+}
+const targetKey = (t) => (t.kind === 'param' ? `param:${t.id}` : t.kind === 'action' ? `action:${t.name}` : `${t.kind}:${t.i}`);
+function markMapped() {
+  const mapped = new Set(learn.maps.map((m) => targetKey(m.target)));
+  document.querySelectorAll('[data-learn]').forEach((el) => el.classList.toggle('mapped', mapped.has(el.dataset.learn)));
+}
+function setLearning(on) {
+  document.body.classList.toggle('learning', on);
+  $('learn-banner').hidden = !on;
+  if (!on) learn.disarm();
+  renderArmed();
+}
+function renderArmed() {
+  const key = learn.target ? targetKey(learn.target) : null;
+  document.querySelectorAll('[data-learn]').forEach((el) => el.classList.toggle('armed', el.dataset.learn === key));
+  $('learn-msg').textContent = learn.target
+    ? `Now move a knob or press a button on your controller for "${targetLabel(learn.target)}".`
+    : 'Click a control on screen, then move a knob or press a button on your controller.';
+}
+// While learning, clicks pick a target instead of operating the control.
+for (const type of ['pointerdown', 'click', 'dblclick']) {
+  document.addEventListener(type, (e) => {
+    if (!document.body.classList.contains('learning')) return;
+    if (e.target.closest('#learn-banner')) return;
+    const el = e.target.closest('[data-learn]');
+    if (!el) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (type === 'pointerdown') learn.arm(parseTarget(el.dataset.learn));
+  }, true);
+}
+learn.addEventListener('armed', renderArmed);
+learn.addEventListener('learned', (e) => {
+  const m = e.detail;
+  toast(`${sourceLabel(m)} -> ${targetLabel(m.target)}${m.mode.startsWith('rel') ? ' (relative)' : ''}`);
+});
+learn.addEventListener('change', () => { markMapped(); if ($('midi-dlg').open) renderMidiDialog(); });
+$('learn-done').addEventListener('click', () => setLearning(false));
+window.addEventListener('keydown', (e) => { if (e.code === 'Escape' && document.body.classList.contains('learning')) setLearning(false); });
+
+const MODE_NAMES = { abs: 'knob (absolute)', rel64: 'encoder (64 = still)', rel2c: 'encoder (1 / 127)', button: 'button' };
+const escapeHtml = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+function openMidiDialog() {
+  renderMidiDialog();
+  $('midi-dlg').showModal();
+}
+function renderMidiDialog() {
+  const devs = midi.devices();
+  $('midi-devs').innerHTML = devs.length
+    ? devs.map((d) => `<li><b>${escapeHtml(d.label)}</b> <span class="dim">${escapeHtml(d.name)}</span></li>`).join('')
+    : '<li class="dim">No MIDI inputs found. Plug something in; it shows up here.</li>';
+  $('midi-sysex').hidden = midi.sysex;
+  const rows = learn.maps.map((m, i) => `<tr>
+      <td>${escapeHtml(m.port)}<br><span class="dim">${sourceLabel(m)}</span></td>
+      <td>${escapeHtml(targetLabel(m.target))}</td>
+      <td><select data-i="${i}" aria-label="Control type">${Object.keys(MODE_NAMES).map((x) => `<option value="${x}"${x === m.mode ? ' selected' : ''}>${MODE_NAMES[x]}</option>`).join('')}</select></td>
+      <td><button class="btn small" data-del="${i}" type="button" aria-label="Remove mapping">x</button></td>
+    </tr>`).join('');
+  $('midi-maps').innerHTML = rows || '<tr><td colspan="4" class="dim">No learned mappings yet.</td></tr>';
+}
+$('midi-maps').addEventListener('change', (e) => { if (e.target.dataset.i) learn.setMode(+e.target.dataset.i, e.target.value); });
+$('midi-maps').addEventListener('click', (e) => { if (e.target.dataset.del) learn.remove(+e.target.dataset.del); });
+$('midi-learn').addEventListener('click', () => { $('midi-dlg').close(); setLearning(true); });
+$('midi-clear').addEventListener('click', () => { if (learn.maps.length && confirm('Remove all learned MIDI mappings?')) learn.clear(); });
+markMapped();
 $('midi-btn').addEventListener('click', async () => {
-  if (midi.access) { renderMidiStatus(); return; }
+  if (midi.access) { openMidiDialog(); return; }
   try {
     await midi.enable();
     toast(midi.sysex ? 'MIDI connected' : 'MIDI connected (without SysEx: no Push display)');
