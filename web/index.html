@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Chompfe</title>
+  <meta name="description" content="Chompfe: an 8-voice wavetable synth in the browser.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="top">
+    <h1 class="wordmark">chompfe<span class="dot">.</span></h1>
+    <div class="meter" aria-hidden="true"><div class="meter-fill" id="vu"></div></div>
+    <button id="share" class="btn accent" type="button">copy link</button>
+    <label class="outvol" title="Output level after the engine (browser-side makeup gain + limiter)">
+      <span>out</span>
+      <input id="outdb" type="range" min="0" max="30" step="0.5" value="18" aria-label="Output level">
+    </label>
+  </header>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <main class="rack">
+    <section class="panel wave" aria-labelledby="h-wave">
+      <h2 id="h-wave">wave</h2>
+      <div class="scope-wrap">
+        <canvas id="scope" width="720" height="220" aria-label="Current wavetable frame"></canvas>
+        <div class="scope-label"><span id="table-name">table 1</span> · <span id="frame-label">frame 1/33</span></div>
+      </div>
+      <div class="slots" id="slots" role="radiogroup" aria-label="Wavetable slot"></div>
+      <div class="knobs" id="k-wave"></div>
+      <div class="row">
+        <label class="toggle"><input type="checkbox" id="snap"> <span>pitch in semitones</span></label>
+        <div class="seg" id="octave" role="radiogroup" aria-label="Octave"></div>
+      </div>
+    </section>
+
+    <section class="panel filter" aria-labelledby="h-filter">
+      <h2 id="h-filter">filter</h2>
+      <div class="knobs" id="k-filter"></div>
+    </section>
+
+    <section class="panel shape" aria-labelledby="h-shape">
+      <h2 id="h-shape">envelope</h2>
+      <div class="knobs" id="k-shape"></div>
+    </section>
+
+    <section class="panel motion" aria-labelledby="h-motion">
+      <h2 id="h-motion">wobble <small>filter LFO</small></h2>
+      <div class="knobs" id="k-wob"></div>
+      <h2>vibrato <small>pitch LFO</small></h2>
+      <div class="knobs" id="k-vib"></div>
+    </section>
+
+    <section class="panel space" aria-labelledby="h-space">
+      <h2 id="h-space">space</h2>
+      <div class="knobs" id="k-space"></div>
+    </section>
+
+    <section class="panel output" aria-labelledby="h-output">
+      <h2 id="h-output">output</h2>
+      <div class="knobs" id="k-output"></div>
+    </section>
+
+    <section class="panel seq" aria-labelledby="h-seq">
+      <div class="seq-head">
+        <h2 id="h-seq">loop</h2>
+        <div class="transport">
+          <button class="tbtn play" id="btn-play" type="button" aria-pressed="false" title="Play / stop (Space)"><span class="ico"></span>play</button>
+          <button class="tbtn rec" id="btn-loop" type="button" aria-pressed="false" title="Arm recording (Enter). Hold to delete the last step. Hold with play to clear."><span class="ico"></span>loop</button>
+          <button class="tbtn rest" id="btn-rest" type="button" title="While recording: add a rest. Otherwise: hold to mute (Q)">rest / mute</button>
+          <button class="btn small" id="btn-clear" type="button">clear</button>
+        </div>
+        <div class="seq-opts">
+          <div class="knobs compact" id="k-seq"></div>
+          <button class="btn small" id="btn-tap" type="button" title="Tap twice or more">tap</button>
+          <div class="seg" id="div" role="radiogroup" aria-label="Step length"></div>
+          <div class="seg" id="gate" role="radiogroup" aria-label="Gate length"></div>
+          <div class="len">
+            <span>length</span>
+            <button class="btn small" id="len-dn" type="button" aria-label="Shorter loop">−</button>
+            <output id="len">0</output>
+            <button class="btn small" id="len-up" type="button" aria-label="Longer loop">+</button>
+          </div>
+        </div>
+      </div>
+      <div class="grid" id="grid" aria-label="Loop steps"></div>
+      <p class="hint" id="seq-hint">Tap <b>loop</b>, play some keys (each key you let go of becomes a step, <b>rest</b> adds a gap), tap <b>loop</b> again, then <b>play</b>. Or click steps to draw; drag a step up/down to change its note.</p>
+    </section>
+
+    <section class="panel presets" aria-labelledby="h-presets">
+      <h2 id="h-presets">sounds</h2>
+      <div class="preset-bar">
+        <div class="preset-slots" id="preset-slots"></div>
+        <button class="btn small" id="p-init" type="button" title="Back to the default sound">init</button>
+        <button class="btn small" id="p-save" type="button" aria-pressed="false">save…</button>
+        <button class="btn small" id="p-erase" type="button" aria-pressed="false">erase…</button>
+      </div>
+      <p class="hint" id="preset-hint">Click a slot to load it. Sounds save in this browser; the loop and tempo travel with <b>copy link</b>.</p>
+    </section>
+
+    <section class="panel keys-panel" aria-label="Keyboard">
+      <div class="keys-head">
+        <span class="hint">keys <kbd>A</kbd>–<kbd>'</kbd> + <kbd>W E T Y U O P</kbd> · <kbd>Z</kbd>/<kbd>X</kbd> octave (<span id="kb-oct">0</span>) · <kbd>C</kbd>/<kbd>V</kbd> velocity (<span id="kb-vel">100</span>) · <kbd>Space</kbd> play · <kbd>Enter</kbd> loop · <kbd>Q</kbd> rest</span>
+        <button id="panic" class="btn small" type="button">all notes off</button>
+      </div>
+      <div class="keyboard" id="keyboard"></div>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <button id="about-btn" class="linkish" type="button">about &amp; credits</button>
+  </footer>
+
+  <dialog id="about">
+    <h2>About Chompfe</h2>
+    <p>Chompfe runs the DSP engine of the open-source <strong>CHOMPI WAVE</strong> firmware by
+      <a href="https://github.com/CHOMPI-Club/CHOMPI" target="_blank" rel="noopener">CHOMPI Club</a>
+      (now part of Chase Bliss), compiled to WebAssembly. The engine (voices, wavetable oscillator,
+      DJ filter, LFOs, delay, reverb, compressor, loop sequencer) and the seven factory wavetables
+      come from that release. The controls, step grid and controller support are new.</p>
+    <p>Chompfe is an independent project and is not affiliated with or endorsed by CHOMPI Club or
+      Chase Bliss. CHOMPI is a trademark of CHOMPI Club.</p>
+    <p>Also built on DaisySP and libDaisy (Electrosmith, MIT) and DSP by Émilie Gillet / Mutable
+      Instruments (MIT).</p>
+    <pre class="license">MIT License
+
+Copyright (c) 2026 CHOMPI Club
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.</pre>
+    <form method="dialog"><button class="btn">close</button></form>
+  </dialog>
+
+  <div class="start" id="start">
+    <div class="start-inner">
+      <p class="start-shared" id="start-shared" hidden>someone sent you a sound</p>
+      <button class="start-btn" id="start-btn" type="button">
+        <span class="big">tap to wake it up</span>
+        <span class="small">browsers need a click before they make sound</span>
+      </button>
+      <p class="start-err" id="start-err" hidden></p>
+    </div>
+  </div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

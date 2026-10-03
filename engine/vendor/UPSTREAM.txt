@@ -1,0 +1,5 @@
+Source: https://github.com/CHOMPI-Club/CHOMPI (MIT, (c) 2026 CHOMPI Club)
+Commit: a73d732613da684e4de844619b690776f0f50ccf
+Path:   firmware/chompi-wave
+Files in firmware/ are byte-identical copies of firmware/chompi-wave/code/src.
+DaisySP and libDaisy/util/FIFO.h come from firmware/chompi-wave/code/libs (MIT, Electrosmith).
