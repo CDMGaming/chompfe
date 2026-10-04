@@ -2,3 +2,4 @@
 *.wasm binary
 *.wav binary
 *.syx binary
+*.flac binary

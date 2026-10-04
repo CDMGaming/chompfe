@@ -39,12 +39,23 @@ for i in 1 2 3 4 5 6 7; do
   cp "$fw/wavetables/wavetable0$i.wav" "$here/../web/wavetables/wavetable0$i.wav"
 done
 
+# ---- TAPE (the sampler / looper firmware), also unmodified
+tape="$up/firmware/chompi-tape/code/src"
+mkdir -p "$out/tape" "$out/coreJSON"
+for f in DSPEngine.h SampleReader.h LooperEngine.h Sampler.h RamBuffer.h          FileStreamingManager.h FileStreamingManager.cpp FileCopier.h PresetManager.h          DJFilter.h BasicMMF.h MicFilter.h Warble.h EnvFollower.h reverb.h fx_engine.h          limiter.h InterpolatedDelayLine.h; do
+  cp "$tape/$f" "$out/tape/$f"
+done
+cp "$day/src/util/wav_format.h" "$out/libDaisy/util/wav_format.h"
+cp -r "$fw/code/libs/coreJSON/source" "$out/coreJSON/source"
+cp "$fw/code/libs/coreJSON/LICENSE" "$out/coreJSON/LICENSE"
+
 sha="$(git -C "$up" rev-parse HEAD 2>/dev/null || echo unknown)"
 cat > "$out/UPSTREAM.txt" <<EOF
 Source: https://github.com/CHOMPI-Club/CHOMPI (MIT, (c) 2026 CHOMPI Club)
 Commit: $sha
 Path:   firmware/chompi-wave
 Files in firmware/ are byte-identical copies of firmware/chompi-wave/code/src.
+Files in tape/ are byte-identical copies of firmware/chompi-tape/code/src.
 DaisySP and libDaisy/util/FIFO.h come from firmware/chompi-wave/code/libs (MIT, Electrosmith).
 EOF
 echo "vendored from $sha"

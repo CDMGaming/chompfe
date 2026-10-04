@@ -2,3 +2,4 @@ upstream/
 test-out/
 node_modules/
 .claude/
+build-tape-gen/

@@ -24,4 +24,10 @@ if __name__ == '__main__':
     web = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'web')
     handler = functools.partial(NoCache, directory=web)
     print(f'Chompfe on http://localhost:{port}  (Ctrl+C to stop)')
-    http.server.ThreadingHTTPServer(('127.0.0.1', port), handler).serve_forever()
+    class Server(http.server.ThreadingHTTPServer):
+        # the default listen backlog of 5 drops connections when the page
+        # loads a sample bank in parallel (Windows then retries after ~3-18 s)
+        request_queue_size = 128
+        daemon_threads = True
+
+    Server(('127.0.0.1', port), handler).serve_forever()
