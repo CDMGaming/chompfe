@@ -11,7 +11,19 @@
 import { ChompfeEngine } from './engine.js';
 import { TapeEngine } from './tape-engine.js';
 
+// WAVE's samples come out ~18 dB under line level (the app's output gain makes
+// that up, as the hardware's analog stage did); TAPE's are at line level. So
+// the bridge lifts WAVE into TAPE's line in, and TAPE is trimmed to sit at the
+// same loudness as WAVE behind the shared output gain.
+const WAVE_TO_LINE = Math.pow(10, 18 / 20);
+const TAPE_TRIM = Math.pow(10, -18 / 20);
+
 const STATE_EVERY = 6; // blocks between UI state posts (~62 Hz at 48 kHz; drives Push LEDs too)
+const CARD_EVERY = 40; // state posts between looks for card changes (~0.6 s)
+
+// the card files worth keeping (not the *_double copies the boot scan makes,
+// not the scratch file a recording streams into)
+const keepFile = (name) => /\.wav$/i.test(name) && !/_double\.wav$/i.test(name) && !/^temp_rec/i.test(name);
 
 class ChompfeProcessor extends AudioWorkletProcessor {
   constructor(options) {
@@ -22,6 +34,7 @@ class ChompfeProcessor extends AudioWorkletProcessor {
     this.mode = 'wave';
     this.bridge = false;
     this.blocks = 0;
+    this.cardPosts = 0;
     this.port.onmessage = (e) => this.onMessage(e.data);
     this.port.postMessage({ t: 'ready', sampleRate });
   }
@@ -53,7 +66,8 @@ class ChompfeProcessor extends AudioWorkletProcessor {
       // ---- TAPE
       case 'tapeInit':
         if (!this.tape) {
-          this.tape = new TapeEngine(new WebAssembly.Module(m.wasmBytes), sampleRate);
+          // monitor "both" as on the factory card (options.json Monitor Position 1)
+          this.tape = new TapeEngine(new WebAssembly.Module(m.wasmBytes), sampleRate, { monitorMode: 1 });
           this.tape.boot();
         }
         this.port.postMessage({ t: 'tapeReady' });
@@ -64,10 +78,11 @@ class ChompfeProcessor extends AudioWorkletProcessor {
         if (!tp) break;
         for (const f of m.files) tp.putFile(f.name, f.data);
         tp.boot(); // headers + *_double files, then the slot table refresh
+        tp.changes(); // those writes were ours, not the player's
         this.port.postMessage({ t: 'tfilesDone', id: m.id });
         break;
       case 'tremove':
-        if (tp) { for (const n of m.names) tp.removeFile(n); tp.boot(); }
+        if (tp) { for (const n of m.names) tp.removeFile(n); tp.boot(); tp.changes(); }
         break;
       case 'tgetfile':
         this.port.postMessage({ t: 'tfile', id: m.id, name: m.name, data: tp ? tp.getFile(m.name) : null });
@@ -79,11 +94,29 @@ class ChompfeProcessor extends AudioWorkletProcessor {
         break;
       }
       case 'tcmds': if (tp) for (const [op, a, b] of m.list) tp.cmd(op, a || 0, b || 0); break;
-      case 'tkey': if (tp) tp.key(m.n, m.down, m.v); break;
+      case 'tkey':
+        if (!tp) break;
+        if (m.b !== undefined) tp.x.tp_key(m.b, m.n, m.down ? 1 : 0, m.v);
+        else tp.key(m.n, m.down, m.v);
+        break;
       case 'tcubbi': if (tp) tp.openCubbiSlot(m.p); break;
       case 'tcopy': if (tp) tp.x.tp_copy_setup(m.srcBank, m.srcMode, m.destBank, m.destMode, m.set ? 1 : 0, m.chompi, m.looper); break;
       default: break;
     }
+  }
+
+  /** Send the files the firmware changed to the page, which keeps them. */
+  postCardChanges(tp) {
+    const ch = tp.changes().filter(([, name]) => keepFile(name));
+    if (!ch.length) return;
+    const files = [];
+    const removed = [];
+    for (const [op, name] of ch) {
+      const data = op === '+' ? tp.getFile(name) : null;
+      if (data) files.push({ name, data });
+      else removed.push(name);
+    }
+    this.port.postMessage({ t: 'tchanged', files, removed }, files.map((f) => f.data.buffer));
   }
 
   process(inputs, outputs) {
@@ -105,12 +138,14 @@ class ChompfeProcessor extends AudioWorkletProcessor {
       }
       if (this.bridge) {
         const [wl, wr] = this.engine.render(n);
-        tp.in[2].set(wl.subarray(0, n));
-        tp.in[3].set(wr.subarray(0, n));
+        for (let i = 0; i < n; i++) {
+          tp.in[2][i] = wl[i] * WAVE_TO_LINE;
+          tp.in[3][i] = wr[i] * WAVE_TO_LINE;
+        }
       }
       tp.render(n);
-      out[0].set(tp.out[2].subarray(0, n));
-      if (out[1]) out[1].set(tp.out[3].subarray(0, n));
+      for (let i = 0; i < n; i++) out[0][i] = tp.out[2][i] * TAPE_TRIM;
+      if (out[1]) for (let i = 0; i < n; i++) out[1][i] = tp.out[3][i] * TAPE_TRIM;
     } else {
       const [l, r] = this.engine.render(n);
       out[0].set(l.subarray(0, n));
@@ -123,6 +158,10 @@ class ChompfeProcessor extends AudioWorkletProcessor {
       const msg = { t: 'state', s: this.engine.state(), midi };
       if (tp) msg.tape = tp.state();
       this.port.postMessage(msg);
+      if (tp && ++this.cardPosts >= CARD_EVERY && !msg.tape.copying && !msg.tape.erasing && !msg.tape.recording) {
+        this.cardPosts = 0;
+        this.postCardChanges(tp);
+      }
     }
     return true;
   }

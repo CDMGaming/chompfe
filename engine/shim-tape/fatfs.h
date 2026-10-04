@@ -95,4 +95,7 @@ uint8_t *put(const char *name, size_t size);
 const uint8_t *get(const char *name, size_t *size);
 bool remove(const char *name);
 size_t bytes_used();
+/** Names the firmware changed ("+name") or deleted ("-name") since the last
+ *  call, one per line; clears them. */
+size_t take_changes(char *out, size_t cap);
 } // namespace memfs

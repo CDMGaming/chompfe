@@ -108,6 +108,19 @@ TP_EXPORT int tp_fs_size()
 TP_EXPORT int tp_fs_remove() { return memfs::remove(name_buf) ? 1 : 0; }
 TP_EXPORT int tp_fs_bytes() { return (int)memfs::bytes_used(); }
 
+namespace
+{
+char changes_buf[8192];
+}
+/** Files the firmware wrote ("+name") or deleted ("-name") since the last
+ *  call, newline-separated, NUL-terminated. The app keeps the card in
+ *  browser storage with these. */
+TP_EXPORT const char *tp_fs_changes()
+{
+    memfs::take_changes(changes_buf, sizeof(changes_buf));
+    return changes_buf;
+}
+
 /** Start the boot scan over all modes/banks/slots (call after adding files). */
 TP_EXPORT void tp_boot_begin()
 {
@@ -158,7 +171,12 @@ TP_EXPORT int tp_boot_pump(int budget)
 TP_EXPORT void tp_key(int button, int note, int down, float velocity)
 {
     if (down)
+    {
         engine.request_fifo.PushBack(KeyRequest(KeyRequest::Type::START, (float)(note - 60), button, velocity));
+        // NormalPage / ProcessMidi: a key press starts an armed looper recording
+        if (engine.GetLooperRecordArm())
+            engine.ToggleLooperRecord();
+    }
     else
         engine.request_fifo.PushBack(KeyRequest(KeyRequest::Type::STOP, 0.f, button, 127.f));
 }
@@ -223,6 +241,9 @@ enum Cmd
     C_INCREMENT_BANK,
     C_ERASE,            // a: slot 1..14, b: bank (mode = current)
     C_COPY,             // a: src slot, b: dest slot; uses tp_copy_* for banks/modes
+    C_LOOPER_OPEN_FILE, // reload the looper from looper.wav (after a copy/save into it)
+    C_TOGGLE_AUTOLOOP,
+    C_TOGGLE_SUSTAIN,
     C_COUNT
 };
 
@@ -307,6 +328,9 @@ TP_EXPORT float tp_cmd(int op, float a, float b)
         copier.req_fifo.PushBack(req);
         break;
     }
+    case C_LOOPER_OPEN_FILE: engine.LooperOpenFile(); break;
+    case C_TOGGLE_AUTOLOOP: engine.ToggleAutoLoop(); break;
+    case C_TOGGLE_SUSTAIN: engine.ToggleSustainActive(); break;
     default: break;
     }
     return 0.f;

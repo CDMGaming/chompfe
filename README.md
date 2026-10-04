@@ -2,14 +2,20 @@
 
 **Play it: <https://cdmgaming.github.io/chompfe/>**
 
-An 8-voice wavetable synth that runs in the browser. Share it as a link, play
-it with the computer keyboard, the mouse, or a MIDI controller.
+A wavetable synth and a sampler with a tape looper, in the browser. Share it
+as a link, play it with the computer keyboard, the mouse, or a MIDI controller.
 
-The sound engine is the DSP from the open-source **CHOMPI WAVE** firmware by
-[CHOMPI Club](https://github.com/CHOMPI-Club/CHOMPI) (MIT), compiled to
-WebAssembly unchanged and run in an AudioWorklet at 48 kHz. The seven factory
-wavetables come from the same release. The controls, step grid and controller
-support are new.
+It runs two engines from the open-source CHOMPI firmware by
+[CHOMPI Club](https://github.com/CHOMPI-Club/CHOMPI) (MIT), each compiled to
+WebAssembly unchanged and run in an AudioWorklet at 48 kHz:
+
+- **WAVE**: the 8-voice wavetable synth with its note loop, and the seven
+  factory wavetables.
+- **TAPE**: the sampler: built-in instruments (JAMMI) and drum kits (CUBBI)
+  from the factory card, recording from the mic, line in or WAVE, a tape
+  looper to overdub on, and effects before or after the tape.
+
+The controls, step grid, LED display and controller support are new.
 
 > Chompfe is an independent project, not affiliated with or endorsed by CHOMPI
 > Club or Chase Bliss. CHOMPI is a trademark of CHOMPI Club.
@@ -23,18 +29,21 @@ support are new.
 | 3 | Ableton Push 1 profile, MIDI input | done (untested on hardware) |
 | 4 | Arturia MiniLab mkII profile, generic MIDI learn | done (untested on hardware) |
 | 5 | Your own wavetables + guide | done |
+| 6 | TAPE: sampler, factory sounds, tape looper, effects pre/post, recording, WAVE → TAPE bridge | done |
 
 ## Run it locally
 
 Any static file server works, because the app is just files in `web/`. For
-local use, `tools/serve.py` serves `web/` with caching turned off, so a reload
-always picks up changes:
+local use, `tools/serve.mjs` (Node, no dependencies) serves `web/` with caching
+turned off, so a reload always picks up changes:
 
 ```bash
-python tools/serve.py
+node tools/serve.mjs
 ```
 
-(If you use another server and changes don't show up, hard-reload with
+`tools/serve.py` does the same with Python, but on Windows it stalls on the
+parallel requests TAPE makes when it loads a bank of sounds, so prefer the Node
+one. (If you use another server and changes don't show up, hard-reload with
 Ctrl+Shift+R.)
 
 Then open <http://localhost:8080> and click **tap to wake it up**.
@@ -84,6 +93,36 @@ under the panel explains whatever you point at.
 Below the panel are drawers for things the hardware doesn't have: the loop as
 a 32-step grid, sounds and sharing, wavetables (view, import, export), every
 parameter on its own knob (handy for MIDI learn), and a cheat sheet.
+
+### TAPE
+
+Click **tape** at the top right of the panel (it remembers). The same face
+relabels for the TAPE firmware; the **tape guide** drawer under it has recipes
+and the knob table. In short:
+
+- **Sounds.** Shift + JAMMI plays one sound across the keys; shift + a white
+  key picks which. Shift + CUBBI turns every white key into its own sound (the
+  drum kits). Pressing JAMMI / CUBBI again steps through the banks (a–e; the
+  factory card fills a–c). A bank's sounds load the first time you pick it.
+- **The tape.** LOOP records, LOOP again sets the length and keeps recording
+  on top, LOOP again stops. Pick another sound and overdub. Shift + PLAY / LOOP
+  sets how much older layers fade. The TAPE knob changes tape speed (and
+  direction), or scrubs when stopped.
+- **Effects.** MAGIC: reverb + delay, lo-fi, filter (press for pages; shift
+  for delay time, warble, resonance). Shift + FX PRE records them onto the
+  tape, shift + FX POST applies them after it.
+- **Recording.** Turn on **mic / line in** (or **wave → tape**), pick the
+  source with shift + MIC / LINE / RESAMPLE, flip the mode switch up and hold
+  the star key. Shift + SAVE stores the take in a slot (or on the tape).
+  Shift + COPY / ERASE work the same way.
+- **WAVE → TAPE.** With the bridge on, WAVE keeps running underneath as
+  TAPE's line input, so a WAVE loop can be recorded as a sound or onto the tape.
+- **Your card.** What you save, copy or erase is kept in this browser
+  (IndexedDB), like an SD card; per-slot settings (speed, start, end, envelope,
+  level, pan) too. "forget my TAPE sounds" in the guide resets it.
+
+Computer keys play TAPE the same way (A = middle C, the sample's own pitch);
+Space / Enter are PLAY / LOOP and Q is the star key.
 
 ### The loop (the hardware's note-loop recorder)
 
@@ -335,12 +374,13 @@ Every push to `main` publishes `web/` to GitHub Pages
 
 ## Build the engine
 
-The compiled `web/chompfe.wasm` is committed, so you only need this if you
-change the C++.
+The compiled `web/chompfe.wasm` and `web/tape.wasm` are committed, so you
+only need this if you change the C++.
 
 1. Install [Emscripten](https://emscripten.org/docs/getting_started/downloads.html)
    (`emsdk install latest && emsdk activate latest`).
-2. `bash engine/build.sh` (looks for `em++` on PATH, else `$EMSDK` or `~/emsdk`).
+2. `bash engine/build.sh` builds WAVE, `bash engine/build-tape.sh` builds TAPE
+   (both look for `em++` on PATH, else `$EMSDK` or `~/emsdk`).
 3. `node tools/render-test.mjs` renders test notes offline into `test-out/*.wav`
    and checks pitch, release, reverb tail and sequencer timing.
    `node tools/push1-test.mjs` and `node tools/controllers-test.mjs` check
@@ -348,9 +388,21 @@ change the C++.
    `node tools/panel-test.mjs` checks the panel against the WAVE manual.
    `node tools/wavetable-test.mjs` checks importing (pitch detection,
    one-cycle frames, spectral mode) and the export file layout.
+   `node tools/tape-test.mjs` checks the TAPE engine (card, boot copier,
+   JAMMI / CUBBI, the looper, FX routing, line-in recording) and
+   `node tools/tape-ui-test.mjs` drives it through the ported control layer
+   (shift page, banks, per-slot settings, record / save / copy / erase, the
+   looper keys). Both need the factory samples in `upstream/` (below).
+
+The factory TAPE sounds ship as lossless FLAC (`web/samples/tape/`, ~36 MB
+instead of ~112 MB of WAV). `python tools/make-tape-samples.py` makes them from
+the card profile in `upstream/` and writes `index.json` with a checksum per
+file; the page decodes each FLAC, checks it against that checksum and hands
+the engine the original 16-bit WAV bytes.
 
 To re-vendor from upstream: clone the CHOMPI repo into `upstream/` and run
-`bash engine/vendor.sh`. It records the commit in `engine/vendor/UPSTREAM.txt`.
+`bash engine/vendor.sh` (WAVE and TAPE sources). It records the commit in
+`engine/vendor/UPSTREAM.txt`.
 
 ## How it's put together
 
@@ -363,10 +415,22 @@ engine/
                      FileStreamingManager.h, hardware.h
   src/chompfe.cpp    the C API: init, process, note on/off, params, tables,
                      sequencer, MIDI-out queue
+  vendor/tape/       TAPE 2.0 engine sources (DSPEngine, looper, sampler, file
+                     copier, effects), byte-identical
+  vendor/coreJSON/   coreJSON (FreeRTOS / Amazon, MIT), as TAPE ships it
+  shim-tape/         TAPE's hardware stand-ins: an in-memory FatFs "SD card"
+                     (memfs.cpp), daisy.h; override/ holds the one portability
+                     fix (Warble.h, a wasm32 overload ambiguity)
+  src/tape.cpp       TAPE's C API: init, process, card files, boot scan, keys,
+                     engine setters and getters
 web/
-  chompfe.wasm       built engine (no imports, ~40 KB)
-  js/worklet.js      AudioWorkletProcessor that hosts the wasm
-  js/engine.js       wasm wrapper (shared by the worklet and the Node test)
+  chompfe.wasm       built WAVE engine (no imports, ~40 KB)
+  tape.wasm          built TAPE engine (~90 KB)
+  samples/tape/      factory TAPE sounds, FLAC, + index.json
+  js/worklet.js      AudioWorkletProcessor that hosts both engines
+  js/engine.js       WAVE wasm wrapper (shared by the worklet and the Node test)
+  js/tape-engine.js  TAPE wasm wrapper (same)
+  js/cardstore.js    your TAPE card changes, kept in the browser (IndexedDB)
   js/synth.js        AudioContext graph, table loading, messaging
   js/params.js       parameter names, ranges, value readouts
   js/wavetable.js    WAV parser, table shaping, recording -> table, export
@@ -376,8 +440,9 @@ web/
   js/ui/knob.js      knob control
   js/ui/seqgrid.js   32-step grid
   js/app.js          UI wiring, keyboards, transport, controller API
-  js/panel/          the instrument: firmware-ui.js (the hardware's control
-                     logic, ported), panel.js (DOM, LEDs), ledmatrix.js (display)
+  js/panel/          the instrument: firmware-ui.js (WAVE's control logic,
+                     ported), tape-ui.js (TAPE's NormalPage / MenuPage, ported),
+                     panel.js (DOM, LEDs, display), ledmatrix.js (display)
   js/midi/manager.js Web MIDI, device detection by port name
   js/midi/push1.js   Push 1 profile
   js/midi/minilab2.js MiniLab mkII profile
@@ -412,11 +477,32 @@ tools/render-test.mjs  offline render + checks
 - **Pitch.** The engine plays an octave below concert pitch for a given MIDI
   note (MIDI 69 → 220 Hz). That is how the firmware maps notes, so it's kept.
 
+For TAPE:
+
+- **Nothing in the DSP or the file handling.** The sampler voices, looper,
+  file streaming, file copier and effects are compiled as shipped; the SD card
+  is an in-memory FatFs, so even save / copy / erase run the firmware's own
+  code. The knob, key and shift-page logic (NormalPage.h, MenuPage.h, ui.h) is
+  ported to JS line by line.
+- **Settings as on the factory card**: record latch off, tape slew on, input
+  monitor "both", pitch steps in the shift layer, delay not split.
+- **Inputs.** The browser's audio input is both the mic (mono) and the line
+  in (stereo); with the bridge on, WAVE replaces the line in. WAVE is lifted
+  18 dB on the way in (its usual output gain), and TAPE is trimmed 18 dB on the
+  way out, so both engines sit at the same level behind the "out" slider.
+- **Output.** The page plays TAPE's line output, not its headphone output, so
+  the "headphones only" monitor setting really keeps the input out of the
+  speakers.
+- **Additions:** a tap on the star key latches shift (as in WAVE here), and the
+  LED display (the sample with its start-end window, tape position, prompts).
+
 ## Credits and license
 
-- Engine and factory wavetables: CHOMPI WAVE firmware, © 2026 CHOMPI Club, MIT.
-  Electrosmith engineered the original platform and firmware; WAVE was written
-  at Chase Bliss.
+- Engines, factory wavetables and factory sounds: CHOMPI WAVE and TAPE 2.0
+  firmware and card profiles, © 2026 CHOMPI Club, MIT. Electrosmith engineered
+  the original platform and firmware (including TAPE through 1.0.9); TAPE 2.0
+  and WAVE were written at Chase Bliss.
+- coreJSON: © FreeRTOS / Amazon, MIT.
 - DaisySP and libDaisy: © Electrosmith, MIT.
 - Reverb, FX engine and limiter: derived from Émilie Gillet's Mutable
   Instruments code, MIT.

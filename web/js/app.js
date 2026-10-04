@@ -2,6 +2,8 @@
 // links, on-screen and computer keyboards.
 import { Synth, P, DEFAULT_OUTPUT_DB, TABLE_NAMES } from './synth.js';
 import { Panel } from './panel/panel.js';
+import { TapeUI } from './panel/tape-ui.js';
+import { CMD, INPUT, sampleName } from './tape-engine.js';
 import { PARAMS, BY_ID, CLOCK_DIVS } from './params.js';
 import { FRAME_SIZE, FRAMES } from './wavetable.js';
 import { Knob } from './ui/knob.js';
@@ -10,6 +12,7 @@ import { MidiManager } from './midi/manager.js';
 import { sourceLabel } from './midi/learn.js';
 import { Importer } from './ui/importer.js';
 import * as tableStore from './tablestore.js';
+import * as cardStore from './cardstore.js';
 import { encodeSerumWav } from './wavetable.js';
 import {
   defaultValues, encodeLink, decodeLink, linkFromLocation, linkUrl,
@@ -425,6 +428,7 @@ const sustained = new Set();
 function press(src, note, vel = 100) {
   if (held.has(src)) release(src);
   held.set(src, note);
+  if (engine === 'tape') { tapeUI.midiNote(note, true, vel); return; }
   sustained.delete(note);
   down.add(note);
   if (lastNote !== note) { lastNote = note; $('sel-note').textContent = noteName(note); emit('param', 'note'); }
@@ -435,6 +439,10 @@ function release(src) {
   const note = held.get(src);
   if (note === undefined) return;
   held.delete(src);
+  if (engine === 'tape') {
+    if (![...held.values()].includes(note)) tapeUI.midiNote(note, false);
+    return;
+  }
   if (![...held.values()].includes(note)) {
     down.delete(note);
     if (sustain) sustained.add(note);
@@ -453,6 +461,7 @@ function releaseAll() {
   sustained.clear();
   for (const src of [...held.keys()]) release(src);
   synth.allNotesOff();
+  if (synth.tapeOn) synth.tcmd(CMD.STOP_ALL);
 }
 
 // Pitch bend rides on top of the Pitch knob (the engine has no bend input):
@@ -541,13 +550,13 @@ window.addEventListener('keydown', (e) => {
     else press(`k${e.code}`, 60 + kbOct * 12 + KEYMAP[e.code], kbVel);
   } else if (e.code === 'Space') {
     e.preventDefault(); // Space is always PLAY, even with a button focused
-    if (!e.repeat) { transportHeld.add('Space'); playBtn(true); }
+    if (!e.repeat) { transportHeld.add('Space'); api.play(true); }
   } else if (e.code === 'Enter' || e.code === 'NumpadEnter') {
     if (isActivatable(e.target)) return; // Enter presses the focused control instead
     e.preventDefault();
-    if (!e.repeat) { transportHeld.add('Enter'); loopBtn(true); }
+    if (!e.repeat) { transportHeld.add('Enter'); api.loop(true); }
   } else if (e.code === 'KeyQ') {
-    if (!e.repeat) { transportHeld.add('KeyQ'); restBtn(true); }
+    if (!e.repeat) { transportHeld.add('KeyQ'); api.rest(true); }
   } else if (e.code === 'KeyZ' || e.code === 'KeyX') {
     kbOct = Math.max(-3, Math.min(3, kbOct + (e.code === 'KeyZ' ? -1 : 1)));
     $('kb-oct').textContent = kbOct > 0 ? `+${kbOct}` : kbOct;
@@ -563,14 +572,14 @@ window.addEventListener('keyup', (e) => {
   if (e.code in KEYMAP) { release(`k${e.code}`); return; }
   const code = e.code === 'NumpadEnter' ? 'Enter' : e.code;
   if (!transportHeld.delete(code)) return;
-  if (code === 'Space') playBtn(false);
-  else if (code === 'Enter') loopBtn(false);
-  else if (code === 'KeyQ') restBtn(false);
+  if (code === 'Space') api.play(false);
+  else if (code === 'Enter') api.loop(false);
+  else if (code === 'KeyQ') api.rest(false);
 });
 function releaseTransport() {
-  if (transportHeld.delete('Space')) playBtn(false);
-  if (transportHeld.delete('Enter')) loopBtn(false);
-  if (transportHeld.delete('KeyQ')) restBtn(false);
+  if (transportHeld.delete('Space')) api.play(false);
+  if (transportHeld.delete('Enter')) api.loop(false);
+  if (transportHeld.delete('KeyQ')) api.rest(false);
 }
 window.addEventListener('blur', () => { releaseAll(); releaseTransport(); });
 document.addEventListener('visibilitychange', () => { if (document.hidden) { releaseAll(); releaseTransport(); } });
@@ -605,6 +614,9 @@ $('start-btn').addEventListener('click', async () => {
     $('start').hidden = true;
     panel.boot();
     requestAnimationFrame(draw);
+    let want = 'wave';
+    try { want = localStorage.getItem('chompfe.engine') || 'wave'; } catch { /* ignore */ }
+    if (want === 'tape') setEngine('tape');
   } catch (err) {
     console.error(err);
     const e = $('start-err');
@@ -640,9 +652,10 @@ const api = {
   sustain: (on) => setSustain(on),
   bend: (semitones) => setBend(semitones),
   preview,
-  play: (down) => playBtn(down),
-  loop: (down) => loopBtn(down),
-  rest: (down) => restBtn(down),
+  // in TAPE mode these are TAPE's play / loop, and Q is its star key
+  play: (down) => (engine === 'tape' ? tapeUI.play(down) : playBtn(down)),
+  loop: (down) => (engine === 'tape' ? tapeUI.loop(down) : loopBtn(down)),
+  rest: (down) => (engine === 'tape' ? tapeUI.star(down) : restBtn(down)),
   tap: () => synth.send({ t: 'tap' }),
   state: () => synth.state,
   seq: {
@@ -910,11 +923,129 @@ const panel = new Panel($('instrument'), api, {
   table: (slot) => synth.tables[slot],
   tableName: (slot) => synth.custom[slot] || TABLE_NAMES[slot],
   hint: (text) => { $('hint').textContent = text; },
+  pickFirmware: (name) => setEngine(name),
+  tapeState: () => synth.tapeState,
+  tapeLoading: () => tapeLoadingMsg,
+  tapePeaks: (mode, bank, slot) => synth.tapePeaks.get(sampleName(mode, bank, slot).replace('.wav', '')),
+  extras: () => ({ bridge: bridgeOn, input: !!synth.inputStream }),
+  toggleBridge: () => setBridge(!bridgeOn),
+  toggleInput: () => toggleInput(),
 });
 window.chompfeDebug.panel = panel;
 
+// ------------------------------------------------------------ TAPE
+// The second firmware: sampler + tape looper + effects, in its own engine.
+// Factory banks load the first time they're picked.
+const tapeUI = new TapeUI({
+  cmd: (op, a, b) => synth.tcmd(op, a, b),
+  ask: (op, a, b) => synth.tcmdResult(op, a, b),
+  key: (n, down, v, b) => synth.tkey(n, down, v, b),
+  cubbi: (p) => synth.tcubbi(p),
+  copy: (r) => synth.tcopy(r),
+  state: () => synth.tapeState,
+});
+panel.addFirmware('tape', tapeUI);
+window.chompfeDebug.tape = tapeUI;
+let engine = 'wave';
+let tapeLoadingMsg = '';
+let bridgeOn = false;
+
+async function loadBank(mode, bank, quiet) {
+  if (synth.tapeBanks.has(`${mode}:${bank}`) || !(await synth.tapeBankExists(mode, bank))) return;
+  const name = `${mode ? 'cubbi' : 'jammi'} ${'abcde'[bank]}`;
+  if (!quiet) tapeLoadingMsg = `loading ${name}`;
+  try {
+    await synth.loadTapeBank(mode, bank, (n, of) => { if (!quiet) tapeLoadingMsg = `${name} ${n}/${of}`; });
+  } catch (err) {
+    console.error(err);
+    toast(`couldn't load the ${name} sounds: ${err.message}`, 5000);
+  } finally {
+    if (!quiet) tapeLoadingMsg = '';
+  }
+}
+
+async function setEngine(name) {
+  if (name === engine) return;
+  if (!synth.ctx) { toast('wake it up first (the button in the middle)'); return; }
+  releaseAll();
+  releaseTransport();
+  if (name === 'tape') {
+    engine = 'tape';
+    panel.setFirmware('tape');
+    if (!synth.tapeOn) {
+      tapeLoadingMsg = 'waking up';
+      try {
+        await synth.enableTape();
+      } catch (err) {
+        console.error(err);
+        tapeLoadingMsg = '';
+        toast(`TAPE couldn't start: ${err.message}`, 6000);
+        engine = 'wave';
+        panel.setFirmware('wave');
+        return;
+      }
+      tapeUI.init();
+      synth.setMode('tape');
+      synth.cardOverrides = await cardStore.loadAll(); // your saved sounds win over the factory ones
+      await loadBank(0, 0);
+      loadBank(1, 0, true); // the first drum kit, in the background
+      const extras = await synth.loadCardExtras();
+      if (extras.includes('looper.wav')) synth.tcmd(CMD.LOOPER_OPEN_FILE);
+    }
+    synth.setMode('tape');
+  } else {
+    engine = 'wave';
+    synth.setMode('wave');
+    panel.setFirmware('wave');
+  }
+  document.body.classList.toggle('tape-mode', engine === 'tape');
+  try { localStorage.setItem('chompfe.engine', engine); } catch { /* ignore */ }
+}
+tapeUI.addEventListener('bank', (e) => loadBank(e.detail.mode, e.detail.bank));
+
+// whatever the firmware writes to its card is kept in this browser
+synth.addEventListener('card', async (e) => {
+  const { files, removed } = e.detail;
+  const ok = await cardStore.putMany([...files.map((f) => [f.name, f.data]), ...removed.map((n) => [n, null])]);
+  if (!ok && !cardWarned) { cardWarned = true; toast("this browser won't keep your TAPE sounds (storage is blocked); they last until you close the page", 6000); }
+});
+let cardWarned = false;
+
+$('card-forget').addEventListener('click', async () => {
+  if (!confirm('Forget every TAPE sound you saved, copied or erased in this browser? The factory sounds come back after a reload.')) return;
+  try { localStorage.removeItem('chompfe.tape.presets'); } catch { /* ignore */ }
+  tapeUI.presets = { chompi: null, v: {} };
+  toast((await cardStore.clear()) ? 'forgotten: reload for the factory card' : "couldn't reach this browser's storage");
+});
+
+function setBridge(on) {
+  bridgeOn = on;
+  synth.setBridge(on);
+  if (on) {
+    synth.tcmd(CMD.INPUT_SOURCE, INPUT.LINE);
+    toast("WAVE now plays into TAPE's line in: start a loop in WAVE, then record it here (switch up, hold the star key) or onto the tape (LOOP)", 6500);
+  } else {
+    toast('bridge off');
+  }
+}
+
+async function toggleInput() {
+  if (synth.inputStream) {
+    synth.disableInput();
+    toast('input off');
+    return;
+  }
+  try {
+    await synth.enableInput();
+    toast('input on. Shift + MIC or LINE picks it; headphones stop feedback', 5000);
+  } catch (err) {
+    toast(`no input: ${err.message}`, 5000);
+  }
+}
+
 // MIDI CC 20-23/25 move the panel knobs on their current page (WAVE manual)
 api.knobAbs = (k, v01) => {
+  if (engine === 'tape') { tapeUI.absolute(k, v01); return; }
   const f = panel.fw.KNOBS[k].pages[panel.fw.pages[k]].turn;
   const p = BY_ID[f.id];
   setValue(f.id, p.min + v01 * (p.max - p.min));

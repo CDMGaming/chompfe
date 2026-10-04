@@ -30,6 +30,9 @@ export class Synth extends EventTarget {
     this.tapeState = null;
     this.tapeBanks = new Set(); // 'mode:bank' loaded onto the card
     this.tapeIndex = null;
+    this.tapeLoading = new Map(); // 'mode:bank' -> promise
+    this.cardOverrides = new Map(); // your changes to the card: name -> bytes, or null if erased
+    this.tapePeaks = new Map(); // 'jammi_a1' -> Float32Array(120), for the LED display
   }
 
   async start() {
@@ -66,6 +69,13 @@ export class Synth extends EventTarget {
         } else if (m.id !== undefined && this.pending.has(m.id)) {
           this.pending.get(m.id)(m);
           this.pending.delete(m.id);
+        } else if (m.t === 'tchanged') {
+          for (const f of m.files) {
+            this.cardOverrides.set(f.name, f.data);
+            if (/^(jammi|cubbi)_/i.test(f.name)) this.tapePeaks.set(f.name.replace(/\.wav$/i, ''), peaksOfWav(f.data));
+          }
+          for (const n of m.removed) this.cardOverrides.set(n, null);
+          this.dispatchEvent(new CustomEvent('card', { detail: m }));
         } else if (m.t === 'tapeReady' && this.tapeReadyCb) {
           this.tapeReadyCb();
         }
@@ -135,22 +145,63 @@ export class Synth extends EventTarget {
   setBridge(on) { this.send({ t: 'bridge', on }); }
   tcmd(op, a = 0, b = 0) { this.send({ t: 'tcmd', op, a, b }); }
   async tcmdResult(op, a = 0, b = 0) { return (await this.request({ t: 'tcmd', op, a, b })).v; }
-  tkey(n, down, v = 127) { this.send({ t: 'tkey', n, down, v }); }
+  /** A TAPE key: MIDI note n; `b` is the hardware button when it isn't the keybed's own. */
+  tkey(n, down, v = 127, b) { this.send({ t: 'tkey', n, down, v, b }); }
+  tcubbi(p) { this.send({ t: 'tcubbi', p }); }
+  /** FileCopier request (chompi / looper: 0 none, 1 from RAM, 2 to RAM). */
+  tcopy(r) {
+    this.send({ t: 'tcopy', srcBank: r.srcBank, srcMode: r.srcMode, destBank: r.destBank, destMode: r.destMode, set: r.set, chompi: r.chompi, looper: r.looper });
+    this.tcmd(46, r.src, r.dest); // CMD.COPY
+  }
 
   /** Put one factory bank (mode 0 jammi / 1 cubbi, bank 0..4) on TAPE's card.
    *  Lossless FLAC -> decoded -> checked against the index checksum -> the
    *  original 16-bit WAV bytes. */
-  async loadTapeBank(mode, bank, onProgress) {
+  loadTapeBank(mode, bank, onProgress) {
     const key = `${mode}:${bank}`;
-    if (this.tapeBanks.has(key)) return;
+    if (this.tapeBanks.has(key)) return Promise.resolve();
+    if (!this.tapeLoading.has(key)) {
+      this.tapeLoading.set(key, this.fetchTapeBank(mode, bank, onProgress).finally(() => this.tapeLoading.delete(key)));
+    }
+    return this.tapeLoading.get(key);
+  }
+
+  /** True if the factory card or your own changes have anything in that bank. */
+  async tapeBankExists(mode, bank) {
+    if (!this.tapeIndex) this.tapeIndex = await fetch('samples/tape/index.json').then((r) => r.json());
+    for (let slot = 1; slot <= 14; slot++) {
+      const name = sampleName(mode, bank, slot);
+      if (this.cardOverrides.get(name)) return true;
+      if (this.tapeIndex[name.replace('.wav', '')] && !this.cardOverrides.has(name)) return true;
+    }
+    return false;
+  }
+
+  /** Files on your card outside the factory banks (the tape, say). */
+  async loadCardExtras() {
+    const files = [];
+    for (const [name, data] of this.cardOverrides) {
+      if (data && !/^(jammi|cubbi)_/i.test(name)) files.push({ name, data: data.slice() });
+    }
+    if (files.length) await this.request({ t: 'tfiles', files }, files.map((f) => f.data.buffer));
+    return files.map((f) => f.name);
+  }
+
+  async fetchTapeBank(mode, bank, onProgress) {
+    const key = `${mode}:${bank}`;
     if (!this.tapeIndex) this.tapeIndex = await fetch('samples/tape/index.json').then((r) => r.json());
     const files = [];
     const names = [];
     for (let slot = 1; slot <= 14; slot++) {
-      const base = sampleName(mode, bank, slot).replace('.wav', '');
-      if (this.tapeIndex[base]) names.push([slot, base]);
+      const name = sampleName(mode, bank, slot);
+      const base = name.replace('.wav', '');
+      const own = this.cardOverrides.get(name);
+      if (own) files.push({ name, data: own.slice() }); // yours wins
+      else if (this.tapeIndex[base] && !this.cardOverrides.has(name)) names.push([slot, base]);
+      if (own) this.tapePeaks.set(base, peaksOfWav(own));
     }
     let done = 0;
+    if (names.length && !this.ctx) throw new Error('audio is not running yet');
     await pool(names, 4, async ([slot, base]) => {
       const buf = await fetchRetry(`samples/tape/${base}.flac`);
       const audio = await this.ctx.decodeAudioData(buf);
@@ -164,6 +215,7 @@ export class Synth extends EventTarget {
       const meta = this.tapeIndex[base];
       if (meta.fnv97 !== undefined && fnv97(pcm) !== meta.fnv97) console.warn(`${base}: decoded samples differ from the original`);
       files.push({ name: `${base}.wav`, data: wavBytes(pcm) });
+      this.tapePeaks.set(base, peaks(L, Rch));
       if (onProgress) onProgress(++done, names.length);
     });
     await this.request({ t: 'tfiles', files }, files.map((f) => f.data.buffer));
@@ -179,6 +231,14 @@ export class Synth extends EventTarget {
     this.inputStream = stream;
     this.inputNode = this.ctx.createMediaStreamSource(stream);
     this.inputNode.connect(this.node);
+  }
+
+  disableInput() {
+    if (!this.inputStream) return;
+    this.inputNode.disconnect();
+    for (const t of this.inputStream.getTracks()) t.stop();
+    this.inputStream = null;
+    this.inputNode = null;
   }
 
   noteOn(n, v = 127) { this.send({ t: 'on', n, v }); }
@@ -239,4 +299,27 @@ function toInt16(v) {
   const b = v * 32767;
   const x = Math.abs(a - Math.round(a)) <= Math.abs(b - Math.round(b)) ? a : b;
   return Math.max(-32768, Math.min(32767, Math.round(x)));
+}
+
+// Peak level in 120 columns (the LED display's width).
+function peaks(L, R, cols = 120) {
+  const out = new Float32Array(cols);
+  const per = Math.max(1, Math.floor(L.length / cols));
+  for (let c = 0; c < cols; c++) {
+    let m = 0;
+    const end = Math.min(L.length, (c + 1) * per);
+    for (let i = c * per; i < end; i += 4) m = Math.max(m, Math.abs(L[i]), Math.abs(R[i]));
+    out[c] = m;
+  }
+  return out;
+}
+
+// Peaks of a 16-bit stereo WAV from the card (44-byte header).
+function peaksOfWav(bytes) {
+  const n = Math.floor((bytes.length - 44) / 4);
+  const pcm = new Int16Array(bytes.buffer, bytes.byteOffset + 44, n * 2);
+  const L = new Float32Array(n);
+  const R = new Float32Array(n);
+  for (let i = 0; i < n; i++) { L[i] = pcm[2 * i] / 32768; R[i] = pcm[2 * i + 1] / 32768; }
+  return peaks(L, R);
 }

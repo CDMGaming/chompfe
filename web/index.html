@@ -43,11 +43,56 @@
     <section class="instrument" id="instrument" aria-label="Chompfe instrument"></section>
     <p class="hint-line" id="hint" role="status">Hover or touch any control to see what it does. Hold the star key (or Shift) for the second functions printed on the keys.</p>
     <div class="keys-help">
-      <span class="hint">computer keys <kbd>A</kbd>–<kbd>'</kbd> + <kbd>W E T Y U O P</kbd> · <kbd>Shift</kbd> = shift · <kbd>Z</kbd>/<kbd>X</kbd> octave (<span id="kb-oct">0</span>) · <kbd>C</kbd>/<kbd>V</kbd> velocity (<span id="kb-vel">100</span>) · <kbd>Space</kbd> play · <kbd>Enter</kbd> loop · <kbd>Q</kbd> rest</span>
+      <span class="hint">computer keys <kbd>A</kbd>–<kbd>'</kbd> + <kbd>W E T Y U O P</kbd> · <kbd>Shift</kbd> = shift · <kbd>Z</kbd>/<kbd>X</kbd> octave (<span id="kb-oct">0</span>) · <kbd>C</kbd>/<kbd>V</kbd> velocity (<span id="kb-vel">100</span>) · <kbd>Space</kbd> play · <kbd>Enter</kbd> loop · <kbd>Q</kbd> <span class="wave-only">rest</span><span class="tape-only">star key</span></span>
       <button id="panic" class="btn small" type="button">all notes off</button>
     </div>
 
     <div class="drawers">
+      <details class="drawer tape-only" id="dr-tape" open>
+        <summary>tape guide <small>sounds, the tape loop, recording, effects</small></summary>
+        <section class="panel cheat tape-guide">
+          <div class="recipes">
+            <div class="recipe">
+              <h3>play the built-in sounds</h3>
+              <p><b>Shift + JAMMI</b>: one sound across the keys, like an instrument. <b>Shift + a white key</b> picks which (1–14 of the bank). <b>Shift + CUBBI</b>: a kit, every white key its own sound. Press JAMMI / CUBBI again for the next bank (a–e).</p>
+            </div>
+            <div class="recipe">
+              <h3>loop on the tape</h3>
+              <p><b>LOOP</b> starts recording, play something, <b>LOOP</b> again sets the length and keeps recording on top, <b>LOOP</b> once more stops. <b>PLAY</b> pauses. Hold <b>PLAY + LOOP</b> on an empty tape and recording waits for your first note; hold both 2 s to erase the tape.</p>
+            </div>
+            <div class="recipe">
+              <h3>add another sound on top</h3>
+              <p>While the tape plays, pick a different sound (shift + key, or switch JAMMI / CUBBI) and press <b>LOOP</b> to overdub. <b>Shift + PLAY / LOOP</b> sets how much older layers fade each time round. The <b>TAPE</b> knob changes the tape's speed (backwards left of centre); stopped, it scrubs.</p>
+            </div>
+            <div class="recipe">
+              <h3>effects before or after the tape</h3>
+              <p><b>Shift + FX PRE</b>: the MAGIC knob's reverb, delay, lo-fi and filter are recorded onto the tape. <b>Shift + FX POST</b>: the tape stays dry and the effects are applied on playback, so you can change them later.</p>
+            </div>
+            <div class="recipe">
+              <h3>record your own sound</h3>
+              <p>Turn on <b>mic / line in</b> (headphones!) or <b>wave &rarr; tape</b>. <b>Shift + MIC / LINE / RESAMPLE</b> picks the source. Flip the <b>MODE</b> switch up, <b>hold the star key</b> to record, let go: it plays across the keys. To keep it: switch down, <b>shift + SAVE</b>, pick a slot (or PLAY for the tape), press the star key.</p>
+            </div>
+            <div class="recipe">
+              <h3>sample your WAVE loop</h3>
+              <p>Make a loop in <b>WAVE</b> and press play. Switch to <b>TAPE</b>, turn on <b>wave &rarr; tape</b>: the WAVE loop keeps running into TAPE's line input. Record it as a sound (above), or straight onto the tape with LOOP.</p>
+            </div>
+          </div>
+          <table class="cheat-table">
+            <thead><tr><th>knob</th><th>turn</th><th>shift + turn</th><th>page 2</th><th>page 2: shift</th><th>shift + press</th></tr></thead>
+            <tbody>
+              <tr><th>speed</th><td>speed / backwards</td><td>in musical steps</td><td>sample level</td><td>pan</td><td>reset</td></tr>
+              <tr><th>start</th><td>start point</td><td>slide the window</td><td>attack</td><td>attack + decay</td><td>loop on / off</td></tr>
+              <tr><th>end</th><td>end point</td><td>slide the window</td><td>decay</td><td>attack + decay</td><td>hold on / off</td></tr>
+              <tr><th>magic</th><td>reverb + delay</td><td>delay time</td><td>lo-fi (page 3: filter)</td><td>warble (resonance)</td><td>reset effects</td></tr>
+              <tr><th>tape</th><td>tape speed / scrub</td><td>octaves &amp; fifths</td><td colspan="2">one page; press: speed back to 1x</td><td></td></tr>
+              <tr><th>volume</th><td>volume</td><td>squash</td><td>input gain</td><td>squash</td><td>where input is heard</td></tr>
+            </tbody>
+          </table>
+          <p class="hint">Sound settings (speed, start, end, envelope, level, pan) are remembered per slot. Sounds you save, copy or erase are kept in this browser, like an SD card.
+            <button class="btn small" id="card-forget" type="button">forget my TAPE sounds…</button></p>
+        </section>
+      </details>
+
       <details class="drawer" id="dr-loop">
         <summary>loop steps <small>the 32-step loop as a grid</small></summary>
         <section class="panel seq" aria-labelledby="h-seq">
@@ -131,7 +176,7 @@
         </div>
       </details>
 
-      <details class="drawer" id="dr-cheat">
+      <details class="drawer wave-only" id="dr-cheat">
         <summary>cheat sheet <small>what every knob and key does</small></summary>
         <section class="panel cheat">
           <table class="cheat-table">
@@ -164,14 +209,16 @@
 
   <dialog id="about">
     <h2>About Chompfe</h2>
-    <p>Chompfe runs the DSP engine of the open-source <strong>CHOMPI WAVE</strong> firmware by
+    <p>Chompfe runs the engines of the open-source <strong>CHOMPI WAVE</strong> and
+      <strong>TAPE 2.0</strong> firmware by
       <a href="https://github.com/CHOMPI-Club/CHOMPI" target="_blank" rel="noopener">CHOMPI Club</a>
-      (now part of Chase Bliss), compiled to WebAssembly. The engine (voices, wavetable oscillator,
-      DJ filter, LFOs, delay, reverb, compressor, loop sequencer) and the seven factory wavetables
-      come from that release. The controls, step grid and controller support are new.</p>
+      (now part of Chase Bliss), compiled to WebAssembly. WAVE's engine (voices, wavetable oscillator,
+      DJ filter, LFOs, delay, reverb, compressor, loop sequencer) and its seven factory wavetables,
+      and TAPE's sampler, tape looper, effects and factory sounds, come from that release. The
+      controls, step grid, display and controller support are new.</p>
     <p>Chompfe is an independent project and is not affiliated with or endorsed by CHOMPI Club or
       Chase Bliss. CHOMPI is a trademark of CHOMPI Club.</p>
-    <p>Also built on DaisySP and libDaisy (Electrosmith, MIT) and DSP by Émilie Gillet / Mutable
+    <p>Also built on DaisySP and libDaisy (Electrosmith, MIT), coreJSON (FreeRTOS / Amazon, MIT) and DSP by Émilie Gillet / Mutable
       Instruments (MIT).</p>
     <pre class="license">MIT License
 

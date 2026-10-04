@@ -14,11 +14,29 @@ struct File
     size_t size;
     size_t cap;
     bool used;
+    bool dirty; // written by the firmware since the JS side last asked
 };
 
 constexpr int kMaxFiles = 256;
 File files[kMaxFiles];
 int dummy_fs = 1; // anything non-null marks an open FIL
+
+// names the firmware deleted since the JS side last asked
+constexpr int kMaxRemoved = 64;
+char removed[kMaxRemoved][64];
+int num_removed = 0;
+
+void note_removed(const char *name)
+{
+    for (int i = 0; i < num_removed; ++i)
+        if (std::strcmp(removed[i], name) == 0)
+            return;
+    if (num_removed < kMaxRemoved)
+    {
+        std::strncpy(removed[num_removed], name, 63);
+        removed[num_removed++][63] = 0;
+    }
+}
 
 bool same(const char *a, const char *b)
 {
@@ -101,7 +119,10 @@ FRESULT f_open(FIL *fp, const char *path, BYTE mode)
         return FR_EXIST;
     }
     if (mode & FA_CREATE_ALWAYS)
+    {
         files[i].size = 0;
+        files[i].dirty = true;
+    }
     fp->obj.fs = &dummy_fs;
     fp->obj.objsize = (FSIZE_t)files[i].size;
     fp->flag = mode;
@@ -152,6 +173,7 @@ FRESULT f_write(FIL *fp, const void *buff, UINT btw, UINT *bw)
     std::memcpy(f->data + fp->fptr, buff, btw);
     if (end > f->size)
         f->size = end;
+    f->dirty = true;
     fp->fptr = (FSIZE_t)end;
     fp->obj.objsize = (FSIZE_t)f->size;
     if (bw)
@@ -190,7 +212,10 @@ FRESULT f_truncate(FIL *fp)
     if (!f)
         return FR_INVALID_OBJECT;
     if (fp->fptr < f->size)
+    {
         f->size = fp->fptr;
+        f->dirty = true;
+    }
     fp->obj.objsize = (FSIZE_t)f->size;
     return FR_OK;
 }
@@ -202,6 +227,7 @@ FRESULT f_unlink(const char *path)
     int i = find(path);
     if (i < 0)
         return FR_NO_FILE;
+    note_removed(files[i].name);
     std::free(files[i].data);
     files[i] = File{};
     return FR_OK;
@@ -231,6 +257,14 @@ uint8_t *put(const char *name, size_t size)
     if (i < 0 || !reserve(files[i], size))
         return nullptr;
     files[i].size = size;
+    files[i].dirty = false;
+    for (int k = 0; k < num_removed; ++k)
+    {
+        if (same(removed[k], name))
+        {
+            removed[k][0] = 0;
+        }
+    }
     return files[i].data;
 }
 
@@ -244,7 +278,44 @@ const uint8_t *get(const char *name, size_t *size)
     return files[i].data;
 }
 
-bool remove(const char *name) { return f_unlink(name) == FR_OK; }
+bool remove(const char *name)
+{
+    int i = find(name);
+    if (i < 0)
+        return false;
+    std::free(files[i].data);
+    files[i] = File{};
+    return true;
+}
+
+size_t take_changes(char *out, size_t cap)
+{
+    size_t n = 0;
+    auto append = [&](char prefix, const char *name) {
+        size_t len = std::strlen(name);
+        if (n + len + 2 >= cap)
+            return false;
+        out[n++] = prefix;
+        std::memcpy(out + n, name, len);
+        n += len;
+        out[n++] = '\n';
+        return true;
+    };
+    for (auto &f : files)
+        if (f.used && f.dirty && append('+', f.name))
+            f.dirty = false;
+    int kept = 0;
+    for (int k = 0; k < num_removed; ++k)
+    {
+        if (!removed[k][0])
+            continue;
+        if (!append('-', removed[k]))
+            std::memmove(removed[kept++], removed[k], 64);
+    }
+    num_removed = kept;
+    out[n] = 0;
+    return n;
+}
 
 size_t bytes_used()
 {

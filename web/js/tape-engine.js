@@ -13,6 +13,7 @@ export const CMD = Object.freeze({
   INPUT_MONITOR: 33, MONITOR_NEXT: 34, RECORD_START: 35, RECORD_STOP: 36, PITCH_QUANT: 37,
   LOOPER_PITCH_QUANT: 38, RESET_PITCH_QUANT: 39, RESET_LOOPER_PITCH_QUANT: 40, STOP_ALL: 41,
   GLOBAL_PITCH: 42, REVERSE: 43, INCREMENT_BANK: 44, ERASE: 45, COPY: 46,
+  LOOPER_OPEN_FILE: 47, TOGGLE_AUTOLOOP: 48, TOGGLE_SUSTAIN: 49,
 });
 
 // Must match enum Get in engine/src/tape.cpp
@@ -113,6 +114,18 @@ export class TapeEngine {
   }
 
   removeFile(name) { this.setName(name); return !!this.x.tp_fs_remove(); }
+
+  /** Files the firmware wrote / deleted since the last call: [['+'|'-', name]]. */
+  changes() {
+    const p = this.x.tp_fs_changes();
+    const u8 = new Uint8Array(this.x.memory.buffer, p, 8192);
+    const out = [];
+    let line = '';
+    for (let i = 0; i < u8.length && u8[i]; i++) {
+      if (u8[i] === 10) { if (line) out.push([line[0], line.slice(1)]); line = ''; } else line += String.fromCharCode(u8[i]);
+    }
+    return out;
+  }
 
   /** Run the boot scan (headers + *_double files) to completion. */
   boot(maxSteps = 1e7) {

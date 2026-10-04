@@ -1,8 +1,9 @@
-Chompfe is distributed under the MIT License. It contains code and wavetables
-from the CHOMPI firmware release by CHOMPI Club, used under that project's MIT
-License (reproduced in full below and in engine/vendor/LICENSE.upstream).
-Vendored DaisySP and libDaisy files keep their own MIT licenses
-(engine/vendor/DaisySP/LICENSE, engine/vendor/libDaisy/LICENSE).
+Chompfe is distributed under the MIT License. It contains code, wavetables
+and factory samples from the CHOMPI firmware release by CHOMPI Club, used
+under that project's MIT License (reproduced in full below and in
+engine/vendor/LICENSE.upstream). Vendored DaisySP, libDaisy and coreJSON files
+keep their own MIT licenses (engine/vendor/DaisySP/LICENSE,
+engine/vendor/libDaisy/LICENSE, engine/vendor/coreJSON/LICENSE).
 
 CHOMPI is a trademark of CHOMPI Club and is not covered by these licenses.
 Chompfe is an independent project, not affiliated with or endorsed by
@@ -34,7 +35,8 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 --------------------------------------------------------------------------------
-CHOMPI firmware (engine/vendor/firmware, web/wavetables)
+CHOMPI firmware (engine/vendor/firmware, engine/vendor/tape, web/wavetables,
+web/samples/tape)
 
 MIT License
 
