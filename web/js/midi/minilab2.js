@@ -15,12 +15,40 @@
 // Layout here: the top row is the core sound, the bottom row movement/space/
 // tempo, pads 1-7 pick wavetables, pad 8 plays/stops the loop, pads 9-16 load
 // sound slots 1-8.
+//
+// With TAPE up:
+//   Knobs 2-6       Speed Start End Magic Volume (absolute, on their current
+//                   page, like TAPE's own CC 20-25)      Knob 8: output level
+//   Knob 1 (endless) the Tape knob (click: tape speed back to 1x)
+//   Knob 9 (endless) the Magic knob (click: its next page)
+//   Pads 1-8        CUBBI: sounds 1-8 of the kit; JAMMI: pick sound 1-8
+//   Pads 9-16       JAMMI, CUBBI, FX before/after the tape, input (mic / line /
+//                   resample), PLAY, LOOP, the star key (press on / press off),
+//                   the mode switch
+import { SLOT_KEYS, FUNC_KEYS } from '../panel/tape-ui.js';
+
 export const id = 'minilab2';
 export const label = 'MiniLab mkII';
 
 export function match(name) { return /minilab\s*mk\s*ii/i.test(name); }
 
 const COLOR = { off: 0, red: 1, green: 4, yellow: 5, blue: 16, magenta: 17, cyan: 20, white: 127 };
+// firmware colour -> the nearest pad colour
+const PAD_RGB = [[COLOR.red, [1, 0, 0]], [COLOR.green, [0, 1, 0]], [COLOR.yellow, [1, 1, 0]], [COLOR.blue, [0, 0, 1]],
+  [COLOR.magenta, [1, 0, 1]], [COLOR.cyan, [0, 1, 1]], [COLOR.white, [1, 1, 1]]];
+function padRgb(c) {
+  if (!c) return COLOR.off;
+  const m = Math.max(...c);
+  if (m < 0.08) return COLOR.off;
+  let best = COLOR.white;
+  let bd = Infinity;
+  for (const [v, p] of PAD_RGB) {
+    const d = p.reduce((s, x, i) => s + (x - c[i] / m) ** 2, 0);
+    if (d < bd) { bd = d; best = v; }
+  }
+  return best;
+}
+const TAPE_KNOBS = { 74: 0, 71: 1, 76: 2, 77: 3, 93: 5 };
 
 export function create({ input, output, api, sysex }) {
   const { P } = api;
@@ -51,7 +79,67 @@ export function create({ input, output, api, sysex }) {
     else api.presets.load(n - 8);
   }
 
+  // ---- TAPE
+  const isTape = () => !!(api.engine && api.engine() === 'tape' && api.tape);
+  const tapePadsDown = new Map(); // pad -> keybed index sounding
+  let starOn = false;
+
+  function tapePad(n, on, vel) { // 0..15
+    const t = api.tape;
+    if (n < 8) {
+      const idx = SLOT_KEYS[n];
+      const st = api.tapeState() || {};
+      if (on) {
+        if (t.menuOpen) { t.keyDown(idx); tapePadsDown.set(n, idx); }
+        else if (st.mode === 1) { t.keyDown(idx, vel); tapePadsDown.set(n, idx); }
+        else t.shiftTap(idx);
+      } else if (tapePadsDown.has(n)) {
+        t.keyUp(tapePadsDown.get(n));
+        tapePadsDown.delete(n);
+      }
+      return;
+    }
+    if (!on) return;
+    const st = api.tapeState() || {};
+    switch (n) {
+      case 8: t.shiftTap(FUNC_KEYS.JAMMI); break;
+      case 9: t.shiftTap(FUNC_KEYS.CUBBI); break;
+      case 10: t.shiftTap(st.fxPre ? FUNC_KEYS.FX_POST : FUNC_KEYS.FX_PRE); break;
+      case 11: t.shiftTap([FUNC_KEYS.LINE, FUNC_KEYS.RESAMPLE, FUNC_KEYS.MIC][st.input ?? 0]); break;
+      case 12: api.play(true); setTimeout(() => api.play(false), 60); break;
+      case 13: api.loop(true); setTimeout(() => api.loop(false), 60); break;
+      case 14: starOn = !starOn; t.star(starOn); break;
+      case 15: t.setSwitch(!t.switchDown); break;
+      default: break;
+    }
+  }
+
+  function tapeMessage(d) {
+    const st = d[0] & 0xf0;
+    const ch = d[0] & 0x0f;
+    if ((st === 0x90 || st === 0x80) && ch === 9 && d[1] >= 36 && d[1] <= 43) {
+      tapePad(d[1] - 36, st === 0x90 && d[2] > 0, d[2]);
+      return true;
+    }
+    if (st !== 0xb0) return false;
+    const cc = d[1];
+    const v = d[2];
+    if (cc in TAPE_KNOBS) { api.knobAbs(TAPE_KNOBS[cc], v / 127); return true; }
+    if (cc === 75) { api.setOutDb((v / 127) * 30); return true; }
+    if (cc === 112) { acc[112] += v - 64; const k = Math.trunc(acc[112]); acc[112] -= k; if (k) api.tape.turn(4, k); return true; }
+    if (cc === 114) { relative(114, v, 1, (dir) => api.tape.turn(3, dir)); return true; }
+    if (cc === 113) { if (v > 0) api.tape.press(4); return true; }
+    if (cc === 115) { if (v > 0) api.tape.press(3); return true; }
+    if (cc >= 22 && cc <= 29) {
+      const now = performance.now();
+      if (v > 0) { padCC.set(cc, now); tapePad(8 + cc - 22, true); } else if (now - (padCC.get(cc) || 0) > 400) tapePad(8 + cc - 22, true);
+      return true;
+    }
+    return [73, 18, 19, 16, 17, 91, 79, 72].includes(cc); // the rest of the knobs: nothing in TAPE
+  }
+
   function onMessage(d) {
+    if (isTape() && tapeMessage(d)) { schedule(); return; }
     const st = d[0] & 0xf0;
     const ch = d[0] & 0x0f;
     if (st === 0x90 || st === 0x80) {
@@ -96,6 +184,26 @@ export function create({ input, output, api, sysex }) {
   let pending = 0;
   function render() {
     pending = 0;
+    if (isTape()) {
+      const t = api.tape;
+      const now = performance.now();
+      const ts = api.tapeState() || {};
+      for (let i = 0; i < 8; i++) {
+        let c = padRgb(t.keyLed(SLOT_KEYS[i], { now }));
+        if (c === COLOR.off && !t.menuOpen && ts.files && ts.files[i]) c = ts.mode === 1 ? COLOR.blue : COLOR.off;
+        padColor(i, c);
+      }
+      const tl = t.transportLeds(now);
+      padColor(8, ts.mode === 0 ? COLOR.magenta : COLOR.off);
+      padColor(9, ts.mode === 1 ? COLOR.magenta : COLOR.off);
+      padColor(10, ts.fxPre ? COLOR.yellow : COLOR.cyan);
+      padColor(11, [COLOR.red, COLOR.green, COLOR.blue][ts.input ?? 0]);
+      padColor(12, padRgb(tl.play));
+      padColor(13, padRgb(tl.loop));
+      padColor(14, padRgb(tl.star) || (starOn ? COLOR.white : COLOR.off));
+      padColor(15, t.switchDown ? COLOR.off : COLOR.red);
+      return;
+    }
     const table = Math.round(api.get(P.TABLE));
     for (let i = 0; i < 7; i++) padColor(i, i === table ? COLOR.white : COLOR.blue);
     padColor(7, api.state().seqPlaying ? COLOR.green : api.seq.length ? COLOR.yellow : COLOR.off);
@@ -103,7 +211,8 @@ export function create({ input, output, api, sysex }) {
     for (let i = 0; i < 8; i++) padColor(8 + i, i === cur ? COLOR.white : api.presets.filled(i) ? COLOR.magenta : COLOR.off);
   }
   const schedule = () => { if (!pending) pending = setTimeout(render, 30); };
-  const offs = [api.on('param', schedule), api.on('state', schedule), api.on('presets', schedule)];
+  const offs = [api.on('param', schedule), api.on('state', schedule), api.on('presets', schedule),
+    api.on('engine', () => { for (const n of [...tapePadsDown.keys()]) tapePad(n, false); if (starOn) { starOn = false; api.tape && api.tape.star(false); } schedule(); })];
   schedule();
 
   return {

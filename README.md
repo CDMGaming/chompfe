@@ -277,6 +277,11 @@ firmware's own CC map, so a DAW or controller set up for the original works:
 | 25 | Level | 30 | Pan |
 | 14 | Rest / mute key | 15 | Loop key |
 
+With TAPE up, it speaks TAPE's own map instead (ui.h): CC 20–25 set the six
+knobs (Speed, Start, End, Magic, Tape, Volume) on their current page, CC 26 /
+27 are PLAY / LOOP; notes play TAPE (MIDI 24–72, middle C = the sample's own
+pitch; in CUBBI the white keys are the kit).
+
 ### MIDI learn
 
 MIDI → **learn a control…**, click anything on screen (a knob, an on/off
@@ -310,6 +315,13 @@ were cross-checked against Ardour's MiniLab mkII map and two other drivers.
 - Keys, pitch/mod strips and sustain work as above.
 - The MiniLab's knobs are absolute, so the first turn after loading a sound
   jumps the value to where the knob is (same as the hardware's MIDI input).
+
+With TAPE up: knobs 2–6 are Speed, Start, End, Magic and Volume (on their
+current page), knob 8 the output level, endless knob 1 the Tape knob (click:
+back to 1x) and endless knob 9 the Magic knob (click: next page). Pads 1–8 are
+sounds 1–8 (CUBBI: play them; JAMMI: pick one). Pads 9–16: JAMMI, CUBBI, FX
+before/after the tape, input (mic → line → resample), PLAY, LOOP, the star key
+(press on, press off) and the mode switch.
 
 
 ### Ableton Push (1st generation)
@@ -361,6 +373,26 @@ every message as it arrives and which port it came on.
 - **Play** = play, **Record** = loop (record), **Mute** = rest/mute. They keep
   the hold gestures: hold Record to delete the last step, hold Play + Record to
   clear. **Tap Tempo** taps.
+
+**TAPE on the Push.** Upper-row button 8 (">TAPE" on the display) switches
+to TAPE, and the Push follows:
+
+- **Encoders 1–6** are TAPE's knobs (Speed, Start, End, Magic, Tape, Volume),
+  encoder 7 the output level; the tempo encoder is the Tape knob too. **Shift**
+  is TAPE's shift, so Shift + encoder is the knob's shift function.
+- **Buttons under encoders 1–6** press the knob (next page; with Shift, its
+  reset / toggle). Under 7: the mode switch (red = record mode). Under 8:
+  the wave → tape bridge.
+- **Upper row 1–7**: JAMMI, CUBBI, MIC, LINE, RESAMPLE, FX PRE, FX POST.
+  Button 8 goes back to WAVE.
+- **Session mode, top half**: the left 4×4 block is sounds 1–15 plus the tape.
+  In JAMMI a tap picks the sound, in CUBBI the block is a drum pad kit, and
+  while erasing / copying / saving it picks the slot. Top row on the right:
+  ERASE, COPY, SAVE and the star key (confirm).
+- The key pads, Note / Session, Scale and octave work as in WAVE, playing TAPE.
+- **Play** / **Record** are PLAY / LOOP, **Mute** is the star key (hold it in
+  record mode to record).
+- The pads and buttons show the firmware's own key and knob colours.
 
 The MIDI details (SysEx display format, pad/encoder/button numbers, LED colour
 values) were checked against Ableton's own Push remote script, not guessed.

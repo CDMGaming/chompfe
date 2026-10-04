@@ -1,8 +1,12 @@
 // Offline checks for the Push 1 profile against a fake app API and a fake
 // MIDI output. No hardware, no browser.   node tools/push1-test.mjs
+import { readFileSync } from 'node:fs';
 import * as push1 from '../web/js/midi/push1.js';
+import { pushColor } from '../web/js/midi/push1-tape.js';
 import { P } from '../web/js/engine.js';
 import { PARAMS, BY_ID } from '../web/js/params.js';
+import { TapeEngine, MODE } from '../web/js/tape-engine.js';
+import { TapeUI } from '../web/js/panel/tape-ui.js';
 
 let fail = 0;
 const check = (ok, msg) => { console.log(`${ok ? 'ok  ' : 'FAIL'} ${msg}`); if (!ok) fail++; };
@@ -10,7 +14,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // ---- fake app
 const values = Object.fromEntries(PARAMS.map((p) => [p.id, p.def]));
-const listeners = { param: [], state: [], presets: [] };
+const listeners = { param: [], state: [], presets: [], engine: [] };
 const notes = [];
 const transport = [];
 const seq = { steps: new Array(32).fill(-1), length: 0 };
@@ -95,6 +99,78 @@ cc(50, 127); await wait(30);
 check([36, 43].every((n) => pad(n) === 45) && pad(37) === 3, 'note mode: roots blue (45), scale notes white (3)');
 on(44); off(44);
 check(notes.some((n) => n[0] === 'on' && n[2] === 53), 'second row starts a fourth up (F3)');
+
+// ---- TAPE: the same Push relabelled, against the real TAPE engine + control layer
+cc(51, 127); // back to session mode
+const te = new TapeEngine(new WebAssembly.Module(readFileSync(new URL('../web/tape.wasm', import.meta.url))), 48000, { monitorMode: 1 });
+te.boot();
+let tstate = te.state();
+const tapeUI = new TapeUI({
+  cmd: (op, a = 0, b = 0) => te.cmd(op, a, b),
+  ask: async (op, a = 0, b = 0) => te.cmd(op, a, b),
+  key: (n, down, vel, b) => (b !== undefined ? te.x.tp_key(b, n, down ? 1 : 0, vel) : te.key(n, down, vel)),
+  cubbi: (p) => te.openCubbiSlot(p),
+  copy: () => {},
+  state: () => tstate,
+});
+tapeUI.init();
+let engine = 'wave';
+let bridge = false;
+const engineCalls = [];
+Object.assign(api, {
+  engine: () => engine, setEngine: (n) => engineCalls.push(n), tape: tapeUI, tapeState: () => tstate,
+  bridge: () => bridge, setBridge: (on) => { bridge = on; },
+});
+const runTape = async (blocks = 40) => {
+  for (let i = 0; i < blocks; i++) { te.render(128); if (i % 6 === 0) { tstate = te.state(); tapeUI.tick(); } }
+  tstate = te.state();
+  await tapeUI.queue;
+};
+cc(27, 127);
+check(engineCalls[0] === 'tape', 'WAVE: upper row button 8 asks for TAPE');
+engine = 'tape';
+listeners.engine.forEach((f) => f('tape'));
+await runTape();
+await wait(40);
+check(lcd(0).trim().startsWith('SPEED') && lcd(0).includes('VOLUME'), `TAPE: the LCD names TAPE's knobs (${JSON.stringify(lcd(0))})`);
+const sp = tapeUI.ev[0][0];
+cc(71, 10);
+await runTape();
+check(tapeUI.ev[0][0] > sp, 'encoder 1 turns the Speed knob');
+cc(103, 127);
+check(tapeUI.pages[1] === 1, 'button under encoder 2 flips Start to its second page (attack)');
+cc(103, 127);
+cc(21, 127); cc(21, 0);
+await runTape(80);
+check(tstate.mode === MODE.CUBBI, 'upper row 2: shift + CUBBI');
+cc(20, 127); cc(20, 0);
+await runTape(80);
+check(tstate.mode === MODE.JAMMI, 'upper row 1: shift + JAMMI');
+cc(49, 127);
+await runTape(10);
+check(tapeUI.menuOpen, 'Shift opens the shift page');
+cc(49, 0);
+await runTape(400);
+check(!tapeUI.menuOpen, 'and closes it');
+cc(108, 127);
+check(!tapeUI.switchDown, 'button under encoder 7 flips the mode switch up (record mode)');
+cc(108, 127);
+cc(109, 127);
+check(bridge, 'button under encoder 8: wave -> tape bridge');
+// star key on the right block (top row, last column = note 99), and Mute
+on(99); await runTape(5);
+check(tapeUI.starHeld, 'right block top row, last pad: the star key');
+off(99);
+transport.length = 0;
+cc(85, 127); cc(85, 0);
+check(transport.join() === 'play,true,play,false', 'Play still goes through the app (TAPE PLAY there)');
+const before = notes.length;
+on(40, 90); off(40);
+check(notes.length === before + 2 && notes[before][2] === 55, 'key pads (bottom half) still play notes, which the app routes to TAPE');
+await wait(40);
+check(pad(36) === 45, 'key pads keep their colours');
+check(pushColor([1, 0, 0]) === 5 && pushColor([1, 1, 1]) === 3 && pushColor([0.25, 0.25, 0.25]) === 2 && pushColor([0, 0, 0]) === 0
+  && pushColor([0.58, 0.05, 1]) === 49 && pushColor([0.14, 1, 0.92]) === 29, 'firmware colours map onto the Push palette');
 
 dev.destroy(true);
 check(sent.slice(-4).every((m) => m[0] === 0xf0 && m.length === 8), 'goodbye clears the LCD');

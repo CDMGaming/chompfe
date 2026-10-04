@@ -7,6 +7,8 @@
 //     values the hardware sends out: frame, vibrato depth, filter LFO depth,
 //     filter, pan
 //     CC 14 rest/mute key, CC 15 loop key (top third = press, bottom third = release)
+//   With TAPE up, TAPE's own map instead: CC 20-25 its six knobs, CC 26 / 27
+//   PLAY / LOOP.
 // Anything else can be mapped with MIDI learn, which takes precedence.
 export const id = 'generic';
 export const label = 'MIDI keys';
@@ -20,7 +22,7 @@ export function create({ input, api }) {
     20: P.PITCH, 21: P.ATTACK, 22: P.RELEASE, 23: P.FX, 25: P.GAIN,
     26: P.FRAME, 27: P.PITCH_LFO_DEPTH, 28: P.FILTER_LFO_DEPTH, 29: P.CUTOFF, 30: P.PAN,
   };
-  const keyCC = { 14: false, 15: false };
+  const keyCC = { 14: false, 15: false, 26: false, 27: false };
   // WAVE manual: CC 20/21/22/23/25 move Pitch/Attack/Decay/Effects/Volume on their current page
   const KNOB_CC = { 20: 0, 21: 1, 22: 2, 23: 3, 25: 5 };
 
@@ -33,6 +35,18 @@ export function create({ input, api }) {
       else if (st === 0xb0) {
         const cc = d[1];
         const v = d[2];
+        if (api.engine && api.engine() === 'tape') {
+          // TAPE (ui.h ProcessMidi): CC 20-25 set the six knobs on their current
+          // page; CC 26 / 27 are PLAY / LOOP (top third press, bottom third release)
+          if (cc >= 20 && cc <= 25) { api.knobAbs(cc - 20, v / 127); return; }
+          if (cc === 26 || cc === 27) {
+            const was = keyCC[cc];
+            if (v > 84) keyCC[cc] = true;
+            else if (v < 42) keyCC[cc] = false;
+            if (was !== keyCC[cc]) (cc === 26 ? api.play : api.loop)(keyCC[cc]);
+            return;
+          }
+        }
         if (cc === 64) api.sustain(v >= 64);
         else if (cc === 1) api.set(P.PITCH_LFO_DEPTH, v / 127);
         else if (cc === 123 || cc === 120) api.allNotesOff();

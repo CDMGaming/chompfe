@@ -4,6 +4,9 @@ import * as minilab from '../web/js/midi/minilab2.js';
 import * as generic from '../web/js/midi/generic.js';
 import { MidiLearn } from '../web/js/midi/learn.js';
 import { fakeApi, checker, wait } from './fake-api.mjs';
+import { readFileSync } from 'node:fs';
+import { TapeEngine, MODE } from '../web/js/tape-engine.js';
+import { TapeUI } from '../web/js/panel/tape-ui.js';
 
 const { check, done } = checker();
 const close = (a, b) => Math.abs(a - b) < 1e-6;
@@ -110,6 +113,61 @@ const close = (a, b) => Math.abs(a - b) < 1e-6;
   const before = values[P.FILTER_LFO_ON];
   learn.handle(port, [0xb0, 50, 0]); learn.handle(port, [0xb0, 50, 127]);
   check(values[P.FILTER_LFO_ON] === (before ? 0 : 1), 'learned CC button toggles an on/off param');
+}
+
+// ---- TAPE: the MiniLab and plain MIDI against the real TAPE engine + control layer
+{
+  const { api, log } = fakeApi();
+  const te = new TapeEngine(new WebAssembly.Module(readFileSync(new URL('../web/tape.wasm', import.meta.url))), 48000, { monitorMode: 1 });
+  te.boot();
+  let ts = te.state();
+  const tape = new TapeUI({
+    cmd: (op, a = 0, b = 0) => te.cmd(op, a, b),
+    ask: async (op, a = 0, b = 0) => te.cmd(op, a, b),
+    key: (n, down, vel, b) => (b !== undefined ? te.x.tp_key(b, n, down ? 1 : 0, vel) : te.key(n, down, vel)),
+    cubbi: (p) => te.openCubbiSlot(p),
+    copy: () => {},
+    state: () => ts,
+  });
+  tape.init();
+  Object.assign(api, {
+    engine: () => 'tape', tape, tapeState: () => ts, knobAbs: (k, v) => tape.absolute(k, v),
+    setEngine: () => {}, bridge: () => false, setBridge: () => {},
+  });
+  const run = async (blocks = 60) => {
+    for (let i = 0; i < blocks; i++) { te.render(128); if (i % 6 === 0) { ts = te.state(); tape.tick(); } }
+    ts = te.state();
+    await tape.queue;
+  };
+
+  const g = generic.create({ input: { id: 'g' }, api });
+  g.onMessage([0xb0, 20, 127]);
+  await run();
+  check(close(tape.ev[0][0], 1), 'TAPE, plain MIDI: CC 20 sets the Speed knob outright (ui.h)');
+  g.onMessage([0xb0, 26, 127]); g.onMessage([0xb0, 26, 0]);
+  check(log.transport.map((t) => t.join(':')).join() === 'play:true,play:false', 'TAPE, plain MIDI: CC 26 is PLAY (press / release)');
+  g.onMessage([0x90, 60, 100]);
+  check(log.notes.some((n) => n[0] === 'on' && n[2] === 60), 'TAPE, plain MIDI: notes still go to the app');
+
+  const sent = [];
+  const m = minilab.create({ input: { id: 'm' }, output: { send: (b) => sent.push(Array.from(b)) }, api, sysex: true });
+  m.onMessage([0xb0, 74, 0]);
+  await run();
+  check(close(tape.ev[0][0], 0), 'TAPE, MiniLab: knob 2 is Speed');
+  m.onMessage([0xb0, 23, 127]);
+  await run(120);
+  check(ts.mode === MODE.CUBBI, 'TAPE, MiniLab: pad 10 is shift + CUBBI');
+  m.onMessage([0xb0, 22, 127]);
+  await run(120);
+  check(ts.mode === MODE.JAMMI, 'TAPE, MiniLab: pad 9 is shift + JAMMI');
+  m.onMessage([0xb0, 29, 127]);
+  check(!tape.switchDown, 'TAPE, MiniLab: pad 16 flips the mode switch');
+  m.onMessage([0xb0, 29, 0]); // a toggle pad's second message, soon after: ignored
+  check(!tape.switchDown, '... and a quick release message does not flip it back');
+  await wait(60);
+  const lastColor = (pad) => { let c; for (const x of sent) if (x[0] === 0xf0 && x[9] === 0x70 + pad) c = x[10]; return c; };
+  check(lastColor(8) === 17 && lastColor(15) === 1, 'TAPE, MiniLab: pad colours show JAMMI (magenta) and record mode (red)');
+  m.destroy(false);
 }
 
 done();

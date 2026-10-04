@@ -5,7 +5,7 @@ import { PARAMS, BY_ID } from '../web/js/params.js';
 
 export function fakeApi() {
   const values = Object.fromEntries(PARAMS.map((p) => [p.id, p.def]));
-  const listeners = { param: [], state: [], presets: [] };
+  const listeners = { param: [], state: [], presets: [], engine: [] };
   const log = { notes: [], transport: [], bends: [], sustain: [], presetLoads: [] };
   const seq = { steps: new Array(32).fill(-1), length: 0 };
   const state = { vu: 0, voices: [], seqPlaying: false, seqRecording: false, seqMuted: false, seqGateOpen: false, seqIndex: 0, seqLength: 0, steps: seq.steps };

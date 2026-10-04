@@ -1000,6 +1000,7 @@ async function setEngine(name) {
   }
   document.body.classList.toggle('tape-mode', engine === 'tape');
   try { localStorage.setItem('chompfe.engine', engine); } catch { /* ignore */ }
+  emit('engine', engine);
 }
 tapeUI.addEventListener('bank', (e) => loadBank(e.detail.mode, e.detail.bank));
 
@@ -1017,6 +1018,14 @@ $('card-forget').addEventListener('click', async () => {
   tapeUI.presets = { chompi: null, v: {} };
   toast((await cardStore.clear()) ? 'forgotten: reload for the factory card' : "couldn't reach this browser's storage");
 });
+
+// controllers reach TAPE through these
+api.engine = () => engine;
+api.setEngine = (name) => setEngine(name);
+api.tape = tapeUI;
+api.tapeState = () => synth.tapeState;
+api.bridge = () => bridgeOn;
+api.setBridge = (on) => setBridge(on);
 
 function setBridge(on) {
   bridgeOn = on;

@@ -49,6 +49,9 @@ const MIDI2KEY = [
 const BTN = { JAMMI: 7, CUBBI: 12, MIC: 13, LINE: 14, RESAMPLE: 21, FX_PRE: 22, FX_POST: 23, ERASE: 29, COPY: 30, SAVE: 31 };
 export const TAPE_BLACK_LABELS = ['JAMMI', 'CUBBI', 'MIC', 'LINE', 'RESAMP', 'FX PRE', 'FX POST', 'ERASE', 'COPY', 'SAVE'];
 export const TAPE_GROUPS = [['sounds', 0, 2], ['input', 2, 5], ['effects', 5, 7], ['card', 7, 10]];
+// keybed indices (0 = MIDI 48), for controllers: the white keys are slots 1..15
+export const SLOT_KEYS = [0, 2, 4, 5, 7, 9, 11, 12, 14, 16, 17, 19, 21, 23, 24];
+export const FUNC_KEYS = { JAMMI: 1, CUBBI: 3, MIC: 6, LINE: 8, RESAMPLE: 10, FX_PRE: 13, FX_POST: 15, ERASE: 18, COPY: 20, SAVE: 22 };
 
 /** Sample speed from the speed knob (NormalPage::OpenCubbiSlot / MenuPage::SetVoiceSlot). */
 export function knobToSpeed(v) {
@@ -94,7 +97,7 @@ export class TapeUI extends EventTarget {
     this.copySrc = SLOT_NONE;
     this.csBank = SLOT_NONE;
     this.csMode = 2;
-    this.blinkStart = 0;
+    this.blinkStart = -1e9; // when a save / copy / erase started (the page stays up >= 1 s)
     this.flashMsg = null;
     this.ledFlash = {}; // knob -> { c, until } (MenuPage lights a knob white on toggles)
     // MenuPage-owned values
@@ -737,6 +740,15 @@ export class TapeUI extends EventTarget {
     if (this.menuOpen && this.menuButton(b, false)) return;
     this.normalKey(b, note, false);
     this.keyDownAt.delete(i);
+  }
+
+  /** Tap keybed key i with shift held: the shift function printed on it. */
+  shiftTap(i) {
+    const was = this.kbdShift;
+    this.setKbdShift(true);
+    this.keyDown(i);
+    this.keyUp(i);
+    this.setKbdShift(was);
   }
 
   /** A MIDI note (24..72), as ui.h ProcessMidi maps them onto the keys. */

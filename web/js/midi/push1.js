@@ -19,6 +19,7 @@
 //   Single-colour buttons: 0 off, 1 dim, 4 full
 import { ROOTS, SCALES, padNote, inScale } from '../scales.js';
 import { CLOCK_DIVS } from '../params.js';
+import { createTapeLayer } from './push1-tape.js';
 
 export const id = 'push1';
 export const label = 'Push 1';
@@ -226,8 +227,19 @@ export function create({ output, api, sysex }) {
     }
   }
 
+  // ---------------------------------------------------------- TAPE
+  // With the TAPE engine up, push1-tape.js takes the encoders, buttons and
+  // the top half of the pads; the key pads stay as they are.
+  const isTape = () => !!(api.engine && api.engine() === 'tape' && api.tape);
+  let tapeLayer = null;
+  const tape = () => tapeLayer || (tapeLayer = createTapeLayer({ api, led, lcdLine, columns, fit, bar, CC }));
+
   // ---------------------------------------------------------- input
   function onMessage(d) {
+    if (isTape() && tape().onMessage(d, { padRowFromTop, padCol, sessionTop: mode === 'session' })) {
+      scheduleRender();
+      return;
+    }
     const st = d[0] & 0xf0;
     if (st === 0x90 || st === 0x80) {
       const note = d[1];
@@ -253,6 +265,7 @@ export function create({ output, api, sysex }) {
       if (b < PAGES.length) page = b;
       else if (b === 4) api.presets.step(-1);
       else if (b === 5) api.presets.step(1);
+      else if (b === 7 && api.setEngine) api.setEngine('tape');
       return scheduleRender();
     }
     if (cc >= 102 && cc <= 109) { if (pressed) resetOrToggle(cc - 102); return; }
@@ -333,6 +346,7 @@ export function create({ output, api, sysex }) {
   }
 
   function renderLcd() {
+    if (isTape()) { tape().renderLcd(); return; }
     const slots = PAGES[page].slots.map(slotInfo);
     lcdLine(0, columns(slots.map((s) => (s ? s.short : ''))));
     lcdLine(1, columns(slots.map((s) => (s ? s.fmt(s.get()) : ''))));
@@ -349,7 +363,7 @@ export function create({ output, api, sysex }) {
     const preset = api.presets.currentName();
     const sel = api.selectedNote();
     const third = mode === 'session' ? `note ${NAMES[sel % 12]}${Math.floor(sel / 12) - 1}` : preset || 'NOTE';
-    lcdLine(3, columns([...pageNames, '<snd', 'snd>', third, loop]));
+    lcdLine(3, columns([...pageNames, '<snd', 'snd>', third, api.setEngine ? `${loop} >TAPE` : loop]));
   }
 
   // ---------------------------------------------------------- output: LEDs
@@ -361,10 +375,22 @@ export function create({ output, api, sysex }) {
     send([kind === 'n' ? 0x90 : 0xb0, num, value]);
   }
 
+  /** Colour of a key pad (bottom half in session mode, all of note mode). */
+  function keyPadColor(idx, sounding) {
+    const n = keyNoteForPad(idx);
+    if (n === null) return RGB.off;
+    const pressed = [...padsDown.values()].some((d) => d.kind === 'key' && d.note === n);
+    if (pressed || sounding.has(n)) return RGB.green;
+    if (mode === 'session' && n === api.selectedNote() && !isTape()) return RGB.sky; // what a step tap will place
+    if (((n - root) % 12 + 12) % 12 === 0) return RGB.blue;
+    if (inScale(n, root, scale())) return mode === 'note' ? RGB.white : RGB.grey;
+    return RGB.off;
+  }
+
   function renderLeds() {
+    if (isTape()) { tape().renderLeds({ sessionTop: mode === 'session', keyLedFor: keyPadColor }); return; }
     const st = api.state();
     const sounding = new Set(st.voices);
-    const sc = scale();
     // pads
     for (let idx = 0; idx < 64; idx++) {
       const note = 36 + idx;
@@ -379,15 +405,7 @@ export function create({ output, api, sysex }) {
           c = n >= 0 ? (st.seqGateOpen ? RGB.white : RGB.green) : RGB.grey;
         } else if (inLoop) c = n >= 0 ? dim(RGB.green, 1) : RGB.dark;
       } else {
-        const n = keyNoteForPad(idx);
-        if (n !== null) {
-          const pressed = [...padsDown.values()].some((d) => d.kind === 'key' && d.note === n);
-          if (pressed || sounding.has(n)) c = RGB.green;
-          else if (mode === 'session' && n === api.selectedNote()) c = RGB.sky; // what a step tap will place
-          else if (((n - root) % 12 + 12) % 12 === 0) c = RGB.blue;
-          else if (inScale(n, root, sc)) c = mode === 'note' ? RGB.white : RGB.grey;
-          else c = RGB.off;
-        }
+        c = keyPadColor(idx, sounding);
       }
       led('n', note, c);
     }
@@ -396,6 +414,7 @@ export function create({ output, api, sysex }) {
       let c = 0;
       if (b < PAGES.length) c = b === page ? 16 : 13; // yellow / yellow half
       else if (b === 4 || b === 5) c = 7; // amber half
+      else if (b === 7 && api.setEngine) c = 13; // over to TAPE
       led('c', 20 + b, c);
     }
     // lower row: the button under each encoder (reset / toggle), in the param's colour
@@ -439,6 +458,12 @@ export function create({ output, api, sysex }) {
   const offParam = api.on('param', scheduleRender);
   const offState = api.on('state', scheduleRender);
   const offPresets = api.on('presets', scheduleRender);
+  const offEngine = api.on('engine', () => {
+    // a switch of engine must not leave pads or shift hanging
+    releaseAllPads();
+    if (tapeLayer) tapeLayer.release();
+    scheduleRender();
+  });
 
   if (sysex) send(LIVE_MODE_MSG);
   lcdClear();
@@ -449,7 +474,8 @@ export function create({ output, api, sysex }) {
     // tell the scale page from outside (for tests) and the UI
     get info() { return { mode, page: PAGES[page].name, root: ROOTS[root], scale: scale().name, inKey, padOct }; },
     destroy(sendGoodbye) {
-      offParam(); offState(); offPresets();
+      offParam(); offState(); offPresets(); offEngine();
+      if (tapeLayer) tapeLayer.release();
       clearTimeout(pending);
       releaseAllPads();
       if (sendGoodbye !== false) {
