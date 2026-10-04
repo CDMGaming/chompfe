@@ -1,5 +1,7 @@
 # Chompfe
 
+**Play it: <https://cdmgaming.github.io/chompfe/>**
+
 An 8-voice wavetable synth that runs in the browser. Share it as a link, play
 it with the computer keyboard, the mouse, or a MIDI controller.
 
@@ -324,6 +326,12 @@ every message as it arrives and which port it came on.
 The MIDI details (SysEx display format, pad/encoder/button numbers, LED colour
 values) were checked against Ableton's own Push remote script, not guessed.
 `node tools/push1-test.mjs` checks the profile against a fake Push.
+
+## Hosting
+
+Every push to `main` publishes `web/` to GitHub Pages
+(`.github/workflows/pages.yml`). Any other static host works too; upload the
+`web/` folder.
 
 ## Build the engine
 

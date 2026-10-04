@@ -1,6 +1,6 @@
 # Redesign plan: WAVE-style panel + LED display (built 2026-10-03; kept for reference)
 
-Decisions (from Felix, 2026-10-03):
+Decisions (2026-10-03):
 - **Layout:** the WAVE-style instrument panel is the main view. Collapsible
   drawers below hold the extras: 32-step grid, sounds/sharing, wavetables
   (import), MIDI, an "all parameters" rack (keep it: MIDI learn needs
