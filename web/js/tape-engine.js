@@ -115,6 +115,12 @@ export class TapeEngine {
 
   removeFile(name) { this.setName(name); return !!this.x.tp_fs_remove(); }
 
+  /** Copy of a RAM buffer (0 = the recording, 1 = the tape), interleaved stereo int16. */
+  ram(which) {
+    const n = this.x.tp_ram_len(which);
+    return new Int16Array(this.x.memory.buffer, this.x.tp_ram_ptr(which), n).slice();
+  }
+
   /** Files the firmware wrote / deleted since the last call: [['+'|'-', name]]. */
   changes() {
     const p = this.x.tp_fs_changes();

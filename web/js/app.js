@@ -3,7 +3,7 @@
 import { Synth, P, DEFAULT_OUTPUT_DB, TABLE_NAMES } from './synth.js';
 import { Panel } from './panel/panel.js';
 import { TapeUI } from './panel/tape-ui.js';
-import { CMD, INPUT, sampleName } from './tape-engine.js';
+import { CMD, INPUT, sampleName, wavBytes } from './tape-engine.js';
 import { PARAMS, BY_ID, CLOCK_DIVS } from './params.js';
 import { FRAME_SIZE, FRAMES } from './wavetable.js';
 import { Knob } from './ui/knob.js';
@@ -913,6 +913,7 @@ window.addEventListener('drop', (e) => {
   document.querySelectorAll('.slot.dropping').forEach((s) => s.classList.remove('dropping'));
   const file = e.dataTransfer.files[0];
   if (!file) return;
+  if (engine === 'tape') { importTapeSound(file); return; }
   const slotEl = e.target.closest && e.target.closest('.slot');
   importFile(file, slotEl ? [...$('slots').children].indexOf(slotEl) : undefined);
 });
@@ -1011,6 +1012,64 @@ synth.addEventListener('card', async (e) => {
   if (!ok && !cardWarned) { cardWarned = true; toast("this browser won't keep your TAPE sounds (storage is blocked); they last until you close the page", 6000); }
 });
 let cardWarned = false;
+
+// ---- your own sounds in, sounds out
+for (let s = 1; s <= 14; s++) $('imp-slot').append(new Option(String(s), String(s)));
+
+async function importTapeSound(file) {
+  if (!synth.ctx) { toast('wake it up first (the button in the middle)'); return; }
+  if (engine !== 'tape') await setEngine('tape');
+  const mode = +$('imp-mode').value;
+  const bank = +$('imp-bank').value;
+  const slot = +$('imp-slot').value;
+  const name = sampleName(mode, bank, slot);
+  try {
+    const { pcm, seconds, cut } = await synth.decodeToPcm(await file.arrayBuffer());
+    const kept = await synth.putTapeSound(name, pcm);
+    await cardStore.putMany([[name, kept]]);
+    delete tapeUI.presets.v[`${mode}:${bank}:${slot}`]; // its old settings were for the old sound
+    tapeUI.savePresetsSoon();
+    const st = synth.tapeState;
+    if (st && st.mode === 0 && mode === 0 && st.voiceBank === bank && st.slot === slot) tapeUI.menuSetVoiceSlot(slot);
+    toast(`${file.name} is ${mode ? 'cubbi' : 'jammi'} ${'abcde'[bank]}${slot} (${seconds.toFixed(1)} s${cut ? ', cut to 5 minutes' : ''}). Shift + ${mode ? 'CUBBI' : 'JAMMI'} to get there.`, 6000);
+  } catch (err) {
+    toast(`couldn't read ${file.name}: ${err.message}`, 5000);
+  }
+}
+$('imp-file').addEventListener('change', (e) => {
+  const f = e.target.files[0];
+  e.target.value = '';
+  if (f) importTapeSound(f);
+});
+
+function download(bytes, filename) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([bytes], { type: 'audio/wav' }));
+  a.download = filename;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+$('dl-sound').addEventListener('click', async () => {
+  const st = synth.tapeState;
+  if (!st) { toast('switch to TAPE first'); return; }
+  const cubbi = st.mode === 1;
+  const slot = cubbi ? tapeUI.lastCubbi : st.slot;
+  if (!slot) { toast('play a pad first'); return; }
+  if (slot === 15) { $('dl-rec').click(); return; }
+  const name = sampleName(st.mode, cubbi ? st.bank : st.voiceBank, slot);
+  const data = await synth.tapeFile(name);
+  if (data) download(data, `chompfe-${name}`); else toast('nothing in that slot');
+});
+$('dl-rec').addEventListener('click', async () => {
+  if (!synth.tapeOn) { toast('switch to TAPE first'); return; }
+  const pcm = await synth.tapeRam(0);
+  if (pcm.length < 2) toast('nothing recorded yet'); else download(wavBytes(pcm), 'chompfe-recording.wav');
+});
+$('dl-tape').addEventListener('click', async () => {
+  if (!synth.tapeOn) { toast('switch to TAPE first'); return; }
+  const pcm = await synth.tapeRam(1);
+  if (pcm.length < 2 || synth.tapeState.looper.empty) toast('the tape is empty'); else download(wavBytes(pcm), 'chompfe-tape.wav');
+});
 
 $('card-forget').addEventListener('click', async () => {
   if (!confirm('Forget every TAPE sound you saved, copied or erased in this browser? The factory sounds come back after a reload.')) return;

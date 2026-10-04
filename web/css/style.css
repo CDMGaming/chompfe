@@ -791,7 +791,7 @@ body:not(.labels) .instrument .kkey.black .klabel { visibility: hidden; }
 .keys-help { position: relative; z-index: 1; display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; align-items: center; margin: 10px 0 0; }
 
 /* drawers */
-.drawers { position: relative; z-index: 1; display: grid; gap: 10px; margin-top: 26px; }
+.drawers { position: relative; z-index: 1; display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; margin-top: 26px; }
 .drawer > summary {
   list-style: none; cursor: pointer; font: 600 17px var(--round); background: var(--panel); border: 2px solid var(--line);
   border-radius: 16px; padding: 12px 16px; display: flex; align-items: baseline; gap: 10px;
@@ -816,6 +816,13 @@ body:not(.tape-mode) .tape-only, body.tape-mode .wave-only { display: none; }
 .recipe h3 { margin: 0 0 6px; font: 700 15px var(--round); color: var(--violet); }
 .recipe p { margin: 0; font-size: 14px; line-height: 1.5; }
 .tape-guide .hint .btn { margin-left: 8px; }
+@media (max-width: 640px) {
+  /* wide tables scroll inside themselves instead of widening the page */
+  .cheat-table { display: block; overflow-x: auto; font-size: 13px; }
+  .recipes { grid-template-columns: 1fr; }
+}
+.tape-io { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 10px 0; font-size: 14px; }
+.tape-io select { font: inherit; padding: 3px 6px; border-radius: 8px; border: 2px solid var(--line); background: var(--paper, #fff); color: inherit; }
 .panel h2 { color: var(--ink-dim); }
 .wave h2, .seq h2 { color: var(--lime); }
 

@@ -108,6 +108,11 @@ TP_EXPORT int tp_fs_size()
 TP_EXPORT int tp_fs_remove() { return memfs::remove(name_buf) ? 1 : 0; }
 TP_EXPORT int tp_fs_bytes() { return (int)memfs::bytes_used(); }
 
+/** The two RAM buffers, interleaved stereo int16: 0 = the recording (slot 15),
+ *  1 = the tape. Length in int16 values. */
+TP_EXPORT const int16_t *tp_ram_ptr(int which) { return which ? loop_buff.mem : chompi_buff.mem; }
+TP_EXPORT int tp_ram_len(int which) { return (int)(which ? loop_buff.length : chompi_buff.length); }
+
 namespace
 {
 char changes_buf[8192];

@@ -84,6 +84,11 @@ class ChompfeProcessor extends AudioWorkletProcessor {
       case 'tremove':
         if (tp) { for (const n of m.names) tp.removeFile(n); tp.boot(); tp.changes(); }
         break;
+      case 'tram': {
+        const data = tp ? tp.ram(m.which) : new Int16Array(0);
+        this.port.postMessage({ t: 'tram', id: m.id, data }, [data.buffer]);
+        break;
+      }
       case 'tgetfile':
         this.port.postMessage({ t: 'tfile', id: m.id, name: m.name, data: tp ? tp.getFile(m.name) : null });
         break;

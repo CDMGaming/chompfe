@@ -222,6 +222,35 @@ export class Synth extends EventTarget {
     this.tapeBanks.add(key);
   }
 
+  /** A RAM buffer as 16-bit stereo: 0 = the last recording, 1 = the tape. */
+  async tapeRam(which) { return (await this.request({ t: 'tram', which })).data; }
+
+  /** A file from TAPE's card (Uint8Array), or null. */
+  async tapeFile(name) { return (await this.request({ t: 'tgetfile', name })).data; }
+
+  /** Put your own sound on the card (16-bit stereo, 48 kHz), and keep it. */
+  async putTapeSound(name, pcm) {
+    const data = wavBytes(pcm);
+    this.cardOverrides.set(name, data.slice());
+    this.tapePeaks.set(name.replace(/\.wav$/i, ''), peaksOfWav(data));
+    await this.request({ t: 'tfiles', files: [{ name, data }] }, [data.buffer]);
+    return this.cardOverrides.get(name);
+  }
+
+  /** Any audio file -> 16-bit stereo at the engine's rate. */
+  async decodeToPcm(arrayBuffer, maxSeconds = 300) {
+    const audio = await this.ctx.decodeAudioData(arrayBuffer);
+    const n = Math.min(audio.length, Math.round(maxSeconds * audio.sampleRate));
+    const L = audio.getChannelData(0);
+    const R = audio.numberOfChannels > 1 ? audio.getChannelData(1) : L;
+    const pcm = new Int16Array(n * 2);
+    for (let i = 0; i < n; i++) {
+      pcm[2 * i] = Math.max(-32768, Math.min(32767, Math.round(L[i] * 32767)));
+      pcm[2 * i + 1] = Math.max(-32768, Math.min(32767, Math.round(R[i] * 32767)));
+    }
+    return { pcm, seconds: n / audio.sampleRate, cut: n < audio.length };
+  }
+
   /** Browser audio input (mic / line) into TAPE. */
   async enableInput() {
     if (this.inputStream) return;

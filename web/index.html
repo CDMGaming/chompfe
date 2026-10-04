@@ -88,7 +88,21 @@
               <tr><th>volume</th><td>volume</td><td>squash</td><td>input gain</td><td>squash</td><td>where input is heard</td></tr>
             </tbody>
           </table>
-          <p class="hint">Sound settings (speed, start, end, envelope, level, pan) are remembered per slot. Sounds you save, copy or erase are kept in this browser, like an SD card.
+          <div class="row tape-io">
+            <span>your own sound into</span>
+            <select id="imp-mode" aria-label="Mode"><option value="0">jammi</option><option value="1">cubbi</option></select>
+            <select id="imp-bank" aria-label="Bank"><option value="0">a</option><option value="1">b</option><option value="2">c</option><option value="3" selected>d</option><option value="4">e</option></select>
+            <select id="imp-slot" aria-label="Slot"></select>
+            <label class="btn small file-btn">load a file…<input type="file" id="imp-file" accept="audio/*,.wav,.mp3,.flac,.ogg,.m4a" hidden></label>
+            <span class="dim">(or drop one on the panel)</span>
+          </div>
+          <div class="row tape-io">
+            <span>download</span>
+            <button class="btn small" id="dl-sound" type="button">this sound</button>
+            <button class="btn small" id="dl-rec" type="button">your last recording</button>
+            <button class="btn small" id="dl-tape" type="button">the tape</button>
+          </div>
+          <p class="hint">Sound settings (speed, start, end, envelope, level, pan) are remembered per slot. Sounds you save, copy, erase or load are kept in this browser, like an SD card. Banks d and e start empty.
             <button class="btn small" id="card-forget" type="button">forget my TAPE sounds…</button></p>
         </section>
       </details>
